@@ -511,8 +511,6 @@ def main():
 
     st.subheader(f"🚒 {training['title']}")
 
-    st.markdown("### 🎯 参加対象者")
-
     # 🎯 参加対象表示
     target_roles = training["target_roles"]
     target_users = get_target_users(training["id"], training["date"])
@@ -520,7 +518,7 @@ def main():
 
     # 👇 ユーザー表示
     with st.container():
-        st.markdown("#### 👥 対象情報")
+        st.markdown("#### 👥 参加対象者")
 
         # ① 役職指定
         if target_roles:
