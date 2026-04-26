@@ -1,6 +1,7 @@
 import streamlit as st
 import sqlite3
 from db import get_target_users
+from db import get_training_target_ids
 from utils.ui import set_toast, show_toast
 
 DB_NAME = "fire_corps.db"
@@ -512,24 +513,39 @@ def main():
 
     st.markdown("### 🎯 参加対象者")
 
+    # 🎯 参加対象表示
     target_roles = training["target_roles"]
-    target_users = get_target_users(training_id, training_date)
-
-
-    # 👇 個別指定があるか判定（重要）
-    has_individual = bool(training["target_user_ids"])
+    target_users = get_target_users(training["id"], training["date"])
+    individual_ids = get_training_target_ids(training["id"])
 
     # 👇 ユーザー表示
-    if target_roles:
-        st.write("対象役職：", target_roles)
+    with st.container():
+        st.markdown("#### 👥 対象情報")
 
-    if has_individual:
-        st.markdown("対象者：")
-        for user in target_users:
-            st.write(user["name"])
+        # ① 役職指定
+        if target_roles:
+            roles = target_roles.split(",")
 
-    elif not target_roles:
-        st.info("全員対象")
+            cols = st.columns(len(roles))
+            for i, r in enumerate(roles):
+                cols[i].info(f"🎖 {r}")
+
+        # ② 個別指定
+        elif individual_ids:
+            names = [u["name"] for u in target_users if u["id"] in individual_ids]
+
+            st.caption("👤 個別指定")
+
+            # 横並び（最大4列）
+            chunk_size = 4
+            for i in range(0, len(names), chunk_size):
+                cols = st.columns(min(chunk_size, len(names) - i))
+                for j, name in enumerate(names[i:i+chunk_size]):
+                    cols[j].success(f"{name}")
+
+        # ③ 全員
+        else:
+            st.success("👥 全員対象")
 
     st.write(f"📅 日付：{training['date']}")
     st.write(f"⏰ 時間：{training['start_time']} ～ {training['end_time']}")

@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 from db import get_fiscal_year
 from db import get_target_users
+from db import get_training_target_ids
 from utils.pdf import create_training_pdf
 
 DB_NAME = "fire_corps.db"
@@ -77,17 +78,17 @@ def get_incidents_map():#事故情報取得関数
 # PDF用関数
 # =========================
 def build_target_label(training):
-    target_users = get_target_users(training["id"], training["date"])
+    individual_ids = get_training_target_ids(training["id"])
 
-    # ① 役職指定あり
+    # ① 役職指定
     if training["target_roles"]:
         return training["target_roles"]
 
-    # ② 個別指定あり
-    elif target_users:
+    # ② 個別指定
+    elif individual_ids:
         return "対象団員"
 
-    # ③ それ以外＝全員
+    # ③ 全員
     else:
         return "全員"
 
@@ -119,17 +120,21 @@ def training_card(training, incident_map):
     st.subheader(title)
     st.write(f"⏰ 集合時間：{training['meeting_time']}")
     event_label = EVENT_TYPE_LABELS.get(training["event_type"], "未設定")
-    st.write(f"🍱 食事：{event_label}")    # 🎯 参加対象表示
+    st.write(f"🍱 食事：{event_label}") 
+    
+    # 🎯 参加対象表示
+    target_roles = training["target_roles"]
     target_users = get_target_users(training["id"], training["date"])
-    
-    if training["target_roles"]:
-        st.write(f"🎯 対象役職：{training['target_roles']}")
-    
-    elif target_users:
-        names = [u["name"] for u in target_users]
-        st.write("🎯 対象者：" + "、".join(names))
+    individual_ids = get_training_target_ids(training["id"])
 
-    else:
+    if target_roles:
+        st.write(f"🎯 対象役職：{target_roles}")
+
+    if individual_ids:
+        names = [u["name"] for u in target_users if u["id"] in individual_ids]
+        st.write("🎯 個別対象者：" + "、".join(names))
+
+    if not target_roles and not individual_ids:
         st.write("🎯 全員対象")
 
     # 出欠

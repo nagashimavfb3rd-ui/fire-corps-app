@@ -608,36 +608,29 @@ def get_target_users(training_id, target_date):
     conn = get_connection()
     cursor = conn.cursor()
 
-    # 訓練データ取得
-    cursor.execute("SELECT * FROM trainings WHERE id = ?", (training_id,))
+    users_dict = {}
+
+    # =========================
+    # ① 個別指定
+    # =========================
+    cursor.execute("""
+        SELECT u.*
+        FROM training_targets tt
+        JOIN users u ON tt.user_id = u.id
+        WHERE tt.training_id = ?
+        AND (u.leave_date IS NULL OR u.leave_date = '' OR u.leave_date >= ?)
+    """, (training_id, target_date))
+
+    for u in cursor.fetchall():
+        users_dict[u["id"]] = u
+
+    # =========================
+    # ② 役職指定
+    # =========================
+    cursor.execute("SELECT target_roles FROM trainings WHERE id=?", (training_id,))
     training = cursor.fetchone()
 
-    if not training:
-        conn.close()
-        return []
-
-    # 個別指定
-    if training["target_user_ids"]:
-        ids = training["target_user_ids"].split(",")
-
-        if not ids:
-            conn.close()
-            return []
-
-        query = f"""
-            SELECT * FROM users
-            WHERE id IN ({",".join(["?"] * len(ids))})
-            AND (leave_date IS NULL OR leave_date = '' OR leave_date >= ?)
-
-        """
-        cursor.execute(query, ids + [target_date])
-        users = cursor.fetchall()
-
-        conn.close()
-        return users
-
-    # 役職指定
-    if training["target_roles"]:
+    if training and training["target_roles"]:
         roles = training["target_roles"].split(",")
 
         query = f"""
@@ -646,20 +639,43 @@ def get_target_users(training_id, target_date):
             AND (leave_date IS NULL OR leave_date = '' OR leave_date >= ?)
         """
         cursor.execute(query, roles + [target_date])
-        users = cursor.fetchall()
 
-        conn.close()
-        return users
+        for u in cursor.fetchall():
+            users_dict[u["id"]] = u
 
-    # 全員
-    cursor.execute("""
-        SELECT * FROM users
-        WHERE (leave_date IS NULL OR leave_date = '' OR leave_date >= ?)
-    """, (target_date,))
-    users = cursor.fetchall()
+    # =========================
+    # ③ 両方なし → 全員
+    # =========================
+    if not users_dict:
+        cursor.execute("""
+            SELECT * FROM users
+            WHERE leave_date IS NULL OR leave_date = '' OR leave_date >= ?
+        """, (target_date,))
+
+        for u in cursor.fetchall():
+            users_dict[u["id"]] = u
 
     conn.close()
-    return users
+
+    return list(users_dict.values())
+
+# =========================
+# 
+# =========================
+def get_training_target_ids(training_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT user_id
+        FROM training_targets
+        WHERE training_id=?
+    """, (training_id,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return [r["user_id"] for r in rows]
 
 # =========================
 # 初期データ作成
