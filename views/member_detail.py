@@ -1,12 +1,13 @@
 import streamlit as st
-import sqlite3
 from datetime import datetime
 from datetime import date
-from db import get_user_field_values
-from db import update_user
-from db import get_fields
-from db import get_units
-from db import get_officer_experience
+from db import update_user_supabase
+from db import get_units_supabase
+from db import get_user_supabase
+from db import get_fields_supabase
+from db import get_user_field_values_supabase
+from db import get_officer_experience_supabase
+from db import supabase
 from utils.ui import calc_years_by_fiscal_year
 
 DB_NAME = "fire_corps.db"
@@ -20,62 +21,54 @@ def calc_age(birth_date):
 
     return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
 
-def get_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_training_types_supabase():
+    return supabase.table("training_types").select("*").execute().data
 
-def get_user(user_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
-    user = cursor.fetchone()
-
-    conn.close()
-    return user
+def upsert_training_count_supabase(user_id, training_type_id, count):
+    supabase.table("training_counts").upsert(
+        {
+            "user_id": user_id,
+            "training_type_id": training_type_id,
+            "count": count
+        },
+        on_conflict="user_id,training_type_id"
+    ).execute()
 
 def training_count_editor(user_id):
-    conn = sqlite3.connect("fire_corps.db")
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM training_types")
-    types = cursor.fetchall()
+    types = get_training_types_supabase()
 
     st.markdown("### 🚒 訓練回数（手動入力）")
 
+    # ★ 追加：1回で全部取得
+    counts_data = supabase.table("training_counts")\
+        .select("training_type_id, count")\
+        .eq("user_id", user_id)\
+        .execute().data
+
+    # ★ 辞書化（超重要）
+    counts_map = {c["training_type_id"]: c["count"] for c in counts_data}
+
     for t in types:
 
-        cursor.execute("""
-        SELECT count FROM training_counts
-        WHERE user_id=? AND training_type_id=?
-        """, (user_id, t["id"]))
-
-        row = cursor.fetchone()
-        current = row["count"] if row else 0
+        count = counts_map.get(t["id"], 0)
 
         new_value = st.number_input(
             f"{t['name']} 回数",
-            value=current,
+            value=count,
             step=1,
             key=f"detail_train_{user_id}_{t['id']}"
         )
 
         if st.button("保存", key=f"detail_save_{user_id}_{t['id']}"):
 
-            cursor.execute("""
-            INSERT INTO training_counts (user_id, training_type_id, count)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_id, training_type_id)
-            DO UPDATE SET count=excluded.count
-            """, (user_id, t["id"], new_value))
-
-            conn.commit()
+            upsert_training_count_supabase(
+               user_id,
+                t["id"],
+                new_value
+            )
             st.success("更新しました")
             st.rerun()
-
-    conn.close()
 
 def main():
     st.title("👤 団員詳細")
@@ -89,7 +82,7 @@ def main():
         st.write(st.session_state)  # デバッグ
         return
 
-    user = get_user(user_id)
+    user = get_user_supabase(user_id)
 
     if not user:
         st.error("データが見つかりません")
@@ -120,15 +113,14 @@ def main():
     is_self = current_user and current_user["id"] == user["id"]
 
     # =========================
-    # 編集モード初期化
+    # 遷移時のモード決定（初回のみ）
     # =========================
     if "edit_mode" not in st.session_state:
-        st.session_state.edit_mode = False
-    
-    # 外部からの遷移対応
-    if st.session_state.get("open_edit"):
-        st.session_state.edit_mode = True
-        st.session_state.open_edit = False
+        st.session_state.edit_mode = st.session_state.get("open_edit", False)
+
+    # 一度使ったら消す（これ超重要）
+    if "open_edit" in st.session_state:
+        del st.session_state.open_edit
 
     # =========================
     # 編集ボタン
@@ -145,7 +137,7 @@ def main():
 
         st.subheader(f"✏️ {user['name']} を編集")
 
-        units = get_units()
+        units = get_units_supabase()
         unit_map = {u["id"]: u["name"] for u in units}
         unit_options = {u["name"]: u["id"] for u in units}
         
@@ -202,8 +194,8 @@ def main():
             max_value=datetime(2033, 4, 1).date()
         )
 
-        values = get_user_field_values(user["id"])
-        fields = get_fields()
+        values = get_user_field_values_supabase(user["id"])
+        fields = get_fields_supabase()
         inputs = {}
         
         if fields:
@@ -236,7 +228,7 @@ def main():
                 "email": email
             }
 
-            update_user(
+            update_user_supabase(
                 user["id"],
                 data,
                 inputs,
@@ -259,8 +251,9 @@ def main():
         # ===== 表示モード =====
         st.subheader(user["name"])
 
-        units = get_units()
+        units = get_units_supabase()
         unit_map = {u["id"]: u["name"] for u in units}
+        exp_map = get_officer_experience_supabase()
         
         for key in user.keys():
             if key in ["id", "password_hash", "salt"]:
@@ -279,7 +272,7 @@ def main():
                 st.write(f"{label}：{value}")
 
                 # 👇 役員経験をここで表示
-                exp = get_officer_experience(user["id"])
+                exp = exp_map.get(user["id"], {"分団長": False, "副分団長": False})
 
                 if exp["分団長"] and exp["副分団長"]:
                     exp_text = "分団長・副分団長 両方経験あり"
@@ -310,16 +303,36 @@ def main():
 
             st.write(f"{label}：{value}")
 
-        values = get_user_field_values(user["id"])
+        values = get_user_field_values_supabase(user["id"])
 
         if values:
             st.markdown("### 📋 追加項目")
 
             for v in values:
                 st.write(f"{v['field_name']}：{v['value'] or '-'}")
+        
+        # --- 訓練回数表示（adminのみ） ---
+        if is_admin:
+            st.markdown("### 🚒 訓練回数")
+            
+            types = get_training_types_supabase()
+            
+            # ★ 追加：1回で全部取得
+            counts_data = supabase.table("training_counts")\
+                .select("training_type_id, count")\
+                .eq("user_id", user_id)\
+                .execute().data
+
+            counts_map = {c["training_type_id"]: c["count"] for c in counts_data}
+
+            for t in types:
+                count = counts_map.get(t["id"], 0)
+                st.write(f"{t['name']}：{count} 回")
 
     st.markdown("---")
 
     if st.button("← 戻る", use_container_width=True):
+        if "edit_mode" in st.session_state:
+            del st.session_state.edit_mode
         st.session_state.page = "members"
         st.rerun()

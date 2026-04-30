@@ -1,52 +1,7 @@
 import streamlit as st
-import sqlite3
 from datetime import date
+from db import get_units_full  # ★Supabase版を使う
 from utils.pdf import create_unit_summary_pdf
-
-DB_NAME = "fire_corps.db"
-
-
-# =========================
-# DB接続
-# =========================
-def get_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-# =========================
-# データ取得（人数＋団員名まとめて取得）
-# =========================
-def get_units_full(target_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT 
-            u.id,
-            u.name,
-            u.required_members,
-            COUNT(us.id) as member_count,
-            GROUP_CONCAT(us.name || '（' || us.login_id || '）', '、') as member_names
-        FROM units u
-        LEFT JOIN users us 
-            ON u.id = us.unit_id
-            AND (
-                us.join_date <= ?
-                AND (
-                    us.leave_date IS NULL 
-                    OR us.leave_date = '' 
-                    OR us.leave_date > ?
-                )
-            )
-        GROUP BY u.id
-        ORDER BY u.name
-    """, (target_date, target_date))
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
 
 
 # =========================

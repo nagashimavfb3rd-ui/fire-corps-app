@@ -1,311 +1,958 @@
 # db.py
-import sqlite3
 import os
 import hashlib
 import secrets
 import shutil
-import os
 from datetime import datetime
+from dotenv import load_dotenv
+from supabase import create_client
 
-DB_NAME = "fire_corps.db"
+load_dotenv()
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# =========================
-# DB接続
-# =========================
-def get_connection():
-    conn = sqlite3.connect(DB_NAME, timeout=10)
-    conn.row_factory = sqlite3.Row
-           
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=3000;")
-    
-    return conn
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # =========================
-# 初期化
+# Supabase版 users取得
 # =========================
-def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
+def get_users_supabase():
+    res = supabase.table("users").select("*").execute()
+    return res.data
 
-    # users（団員）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+# =========================
+# Supabase版 user作成
+# =========================
+def create_user_supabase(user_data):
 
-        login_id TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
+    # login_id生成（安全版）
+    if not user_data.get("login_id"):
+        user_data["login_id"] = generate_login_id_supabase()
 
-        role TEXT,
-        auth_role TEXT DEFAULT 'user',
-        unit_id INTEGER,
+    # passwordが来ている場合だけハッシュ化
+    if "password" in user_data and user_data["password"]:
+        password_hash, salt = create_password_hash(user_data["password"])
+        user_data["password_hash"] = password_hash
+        user_data["salt"] = salt
+        user_data.pop("password")
+
+    # Supabaseへ送信
+    return supabase.table("users").insert(user_data).execute()
+
+def generate_login_id_supabase():
+    res = supabase.table("users").select("login_id").execute().data
+
+    max_num = 0
+
+    for u in res:
+        login_id = u.get("login_id", "")
+        if login_id.startswith("nagashima"):
+            try:
+                num = int(login_id.replace("nagashima", ""))
+                max_num = max(max_num, num)
+            except:
+                pass
+
+    return f"nagashima{max_num + 1:03d}"
+
+def get_units_supabase():
+    return supabase.table("units").select("*").execute().data
+
+def create_unit_supabase(data):
+    return supabase.table("units").insert(data).execute()
+
+def update_unit_supabase(unit_id, data):
+    return supabase.table("units").update(data).eq("id", unit_id).execute()
+
+def delete_unit_supabase(unit_id):
+    return supabase.table("units").delete().eq("id", unit_id).execute()
+
+def get_units_full(target_date):
+    # ① units取得
+    units_res = supabase.table("units").select("*").execute()
+    units = units_res.data
+
+    # ② users取得（期間フィルタは後で処理）
+    users_res = supabase.table("users").select("*").execute()
+    users = users_res.data
+
+    result = []
+
+    for u in units:
+
+        member_names = []
+        member_count = 0
+
+        for us in users:
+
+            if us["unit_id"] != u["id"]:
+                continue
+
+            # 在籍チェック
+            if us["join_date"] and us["join_date"] > str(target_date):
+                continue
+
+            if us["leave_date"] and us["leave_date"] != "" and us["leave_date"] <= str(target_date):
+                continue
+
+            member_count += 1
+            member_names.append(f"{us['name']}（{us['login_id']}）")
+
+        result.append({
+            "id": u["id"],
+            "name": u["name"],
+            "required_members": u["required_members"] or 0,
+            "member_count": member_count,
+            "member_names": "、".join(member_names) if member_names else "なし"
+        })
+
+    return result
+
+def get_user_supabase(user_id):
+    return supabase.table("users").select("*").eq("id", user_id).single().execute().data
+
+
+def get_fields_supabase():
+    return supabase.table("user_fields") \
+        .select("*") \
+        .order("sort_order") \
+        .execute().data
+
+
+def get_user_field_values_supabase(user_id):
+    fields = get_fields_supabase()
+
+    values = supabase.table("user_field_values") \
+        .select("*") \
+        .eq("user_id", user_id) \
+        .execute().data
+
+    value_map = {
+        v["field_id"]: v["value"]
+        for v in values
+    }
+
+    result = []
+
+    for f in fields:
+        result.append({
+            "field_id": f["id"],
+            "field_name": f["field_name"],
+            "value": value_map.get(f["id"], "")
+        })
+
+    return result
+
+def create_field_supabase(field_name, field_type, sort_order=0):
+    return supabase.table("user_fields").insert({
+        "field_name": field_name,
+        "field_type": field_type,
+        "sort_order": sort_order
+    }).execute()
+
+def update_field_supabase(field_id, data):
+    return supabase.table("user_fields") \
+        .update(data) \
+        .eq("id", field_id) \
+        .execute()
+
+def delete_field_supabase(field_id):
+
+    # 値も一緒に削除（重要）
+    supabase.table("user_field_values") \
+        .delete() \
+        .eq("field_id", field_id) \
+        .execute()
+
+    return supabase.table("user_fields") \
+        .delete() \
+        .eq("id", field_id) \
+        .execute()
+
+def update_field_order_supabase(field_orders):
+    """
+    field_orders = [
+        {"id": 1, "sort_order": 1},
+        {"id": 2, "sort_order": 2}
+    ]
+    """
+
+    for f in field_orders:
+        supabase.table("user_fields") \
+            .update({"sort_order": f["sort_order"]}) \
+            .eq("id", f["id"]) \
+            .execute()
+
+def get_user_full_profile_supabase(user_id):
+
+    user = get_user_supabase(user_id)
+    fields = get_user_field_values_supabase(user_id)
+
+    return {
+        "user": user,
+        "fields": fields
+    }
+
+def get_field_options_supabase(field_id):
+    return supabase.table("user_field_options") \
+        .select("*") \
+        .eq("field_id", field_id) \
+        .execute().data
+
+# =========================
+# 訓練種別（Supabase）
+# =========================
+def get_training_types_supabase():
+    res = supabase.table("training_types").select("*").execute()
+    return res.data
+
+
+def create_training_type_supabase(name):
+    supabase.table("training_types").insert({
+        "name": name
+    }).execute()
+
+
+def delete_training_type_supabase(type_id):
+    supabase.table("training_types").delete().eq("id", type_id).execute()
+
+
+# =========================
+# 役員変更系（Supabase）
+# =========================
+def update_user_role_supabase(user_id, auth_role):
+    supabase.table("users") \
+        .update({"auth_role": auth_role}) \
+        .eq("id", user_id) \
+        .execute()
+
+
+def update_role_with_history_supabase(user_id, new_role, change_date):
+
+    # 現在のユーザー取得
+    user = supabase.table("users") \
+        .select("role") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+
+    current_role = user.data["role"]
+
+    target_roles = ["分団長", "副分団長"]
+
+    # =========================
+    # ① 前の役職終了
+    # =========================
+    if current_role in target_roles and new_role != current_role:
+        supabase.table("role_history") \
+            .update({"end_date": change_date}) \
+            .eq("user_id", user_id) \
+            .eq("role", current_role) \
+            .is_("end_date", None) \
+            .execute()
+
+    # =========================
+    # ② 新しい役職開始
+    # =========================
+    if new_role != current_role and new_role in target_roles:
+        supabase.table("role_history") \
+            .insert({
+                "user_id": user_id,
+                "role": new_role,
+                "start_date": change_date
+            }) \
+            .execute()
+
+    # =========================
+    # ③ users更新
+    # =========================
+    supabase.table("users") \
+        .update({"role": new_role}) \
+        .eq("id", user_id) \
+        .execute()
+
+
+# =========================
+# 役員履歴系（Supabase）
+# =========================
+def get_role_history_supabase(role_filter=None):
+    query = supabase.table("role_history").select("*, users(name)")
+
+    if role_filter and role_filter != "すべて":
+        query = query.eq("role", role_filter)
+    else:
+        query = query.in_("role", ["分団長", "副分団長"])
+
+    query = query.order("end_date", desc=True)
+
+    return query.execute().data
+
+
+def update_role_history_supabase(id, role, start_date, end_date):
+    return supabase.table("role_history").update({
+        "role": role,
+        "start_date": start_date,
+        "end_date": end_date
+    }).eq("id", id).execute()
+
+
+def delete_role_history_supabase(id):
+    return supabase.table("role_history").delete().eq("id", id).execute()
+
+
+def get_officer_experience_supabase():
+    res = supabase.table("role_history") \
+        .select("user_id, role") \
+        .in_("role", ["分団長", "副分団長"]) \
+        .execute()
+
+    result = {}
+
+    for row in res.data:
+        uid = row["user_id"]
+        role = row["role"]
+
+        if uid not in result:
+            result[uid] = {"分団長": False, "副分団長": False}
+
+        result[uid][role] = True
+
+    return result
+
+
+# =========================
+# 報酬設定系（Supabase）
+# =========================
+def get_role_rewards_supabase():
+    return supabase.table("role_rewards").select("*").execute().data
+
+
+def update_role_reward_supabase(role, amount):
+    return supabase.table("role_rewards").update({
+        "amount": amount
+    }).eq("role", role).execute()
+
+
+# =========================
+# マイ報酬系（Supabase）
+# =========================
+def get_fiscal_years_supabase():
+    res = supabase.table("trainings") \
+        .select("fiscal_year") \
+        .execute()
+
+    years = list(set(r["fiscal_year"] for r in res.data if r["fiscal_year"]))
+    return sorted(years, reverse=True)
+
+
+def get_user_actual_reward_supabase(user_id, fiscal_year):
+    start, end = get_fiscal_year_range(fiscal_year)
+
+    rows = supabase.table("training_attendance") \
+        .select("actual_status, trainings(date,title,reward_amount)") \
+        .eq("user_id", user_id) \
+        .gte("trainings.date", start) \
+        .lte("trainings.date", end) \
+        .execute().data
+
+    total = 0
+    records = []
+
+    for r in rows:
+        t = r["trainings"]
+        amount = t["reward_amount"] or 0
+
+        if r["actual_status"] == "present":
+            total += amount
+
+        records.append({
+            "date": t["date"],
+            "title": t["title"],
+            "status": r["actual_status"],
+            "source": "actual",
+            "amount": amount if r["actual_status"] == "present" else 0
+        })
+
+    return total, records
+
+
+def get_user_estimated_reward_supabase(user_id, fiscal_year):
+    start, end = get_fiscal_year_range(fiscal_year)
+
+    rows = supabase.table("training_attendance") \
+        .select("attend_status, actual_status, trainings(date,title,reward_amount)") \
+        .eq("user_id", user_id) \
+        .gte("trainings.date", start) \
+        .lte("trainings.date", end) \
+        .execute().data
+
+    total = 0
+    records = []
+
+    for r in rows:
+        t = r["trainings"]
+
+        if r["actual_status"] is not None:
+            status = r["actual_status"]
+            source = "actual"
+        else:
+            status = r["attend_status"]
+            source = "planned"
+
+        amount = t["reward_amount"] or 0
+
+        if status == "present":
+            total += amount
+
+        records.append({
+            "date": t["date"],
+            "title": t["title"],
+            "status": status,
+            "source": source,
+            "amount": amount if status == "present" else 0
+        })
+
+    return total, records
+
+
+def get_role_reward_supabase(user_id, fiscal_year):
+    # 今は簡易版（usersのroleだけ使う）
+    user = supabase.table("users") \
+        .select("role") \
+        .eq("id", user_id) \
+        .single() \
+        .execute().data
+
+    role = user.get("role") or "団員"
+
+    res = supabase.table("role_rewards") \
+        .select("amount") \
+        .eq("role", role) \
+        .execute()
+
+    if res.data:
+        return res.data[0]["amount"]
+
+    return 0
+
+
+def get_user_reward_summary_supabase(user_id, fiscal_year):
+
+    actual_total, actual_records = get_user_actual_reward_supabase(user_id, fiscal_year)
+    estimated_total, estimated_records = get_user_estimated_reward_supabase(user_id, fiscal_year)
+    role_reward = get_role_reward_supabase(user_id, fiscal_year)
+
+    return {
+        "actual_total": actual_total,
+        "estimated_total": estimated_total,
+        "role_reward": role_reward,
+        "grand_total": estimated_total + role_reward,
+        "records": estimated_records
+    }
+
+
+def get_user_specific_training_reward_supabase(user_id, fiscal_year, target_titles):
+
+    start, end = get_fiscal_year_range(fiscal_year)
+
+    rows = supabase.table("training_attendance") \
+        .select("attend_status, actual_status, trainings(date,title,reward_amount)") \
+        .eq("user_id", user_id) \
+        .in_("trainings.title", target_titles) \
+        .gte("trainings.date", start) \
+        .lte("trainings.date", end) \
+        .execute().data
+
+    actual_total = 0
+    estimated_total = 0
+    records = []
+
+    for r in rows:
+        t = r["trainings"]
         
-        birth_date TEXT,
-        join_date TEXT,
-        leave_date TEXT,
+        if not t:
+            continue  # ←これ重要
         
-        address TEXT,
-        phone TEXT,
-        email TEXT,
+        amount = t["reward_amount"] or 0
 
-        license_type TEXT,
-        
-        password_hash TEXT NOT NULL,
-        salt TEXT NOT NULL
+        if r["actual_status"] == "present":
+            actual_total += amount
+
+        if r["actual_status"] is not None:
+            status = r["actual_status"]
+        else:
+            status = r["attend_status"]
+
+        if status == "present":
+            estimated_total += amount
+
+        records.append({
+            "date": t["date"],
+            "title": t["title"],
+            "status": status,
+            "amount": amount
+        })
+
+    return actual_total, estimated_total, records
+
+
+def get_hose_reward_summary_supabase(user_id, fiscal_year):
+
+    start, end = get_fiscal_year_range(fiscal_year)
+
+    rows = supabase.table("training_hose_members") \
+        .select("hose_count, training_hose(training_id, trainings(date))") \
+        .eq("user_id", user_id) \
+        .gte("training_hose.trainings.date", start) \
+        .lte("training_hose.trainings.date", end) \
+        .execute().data
+
+    total = sum(r["hose_count"] for r in rows if r["hose_count"])
+
+    return total, total * 1000
+
+
+# =========================
+# todo系（Supabase）
+# =========================
+def get_todos_supabase():
+    return supabase.table("todos") \
+        .select("*") \
+        .order("status") \
+        .order("deadline", desc=True) \
+        .execute().data
+
+
+def add_todo_supabase(title, deadline):
+    supabase.table("todos").insert({
+        "title": title,
+        "deadline": deadline,
+        "status": "open"
+    }).execute()
+
+
+def complete_todo_supabase(todo_id):
+    supabase.table("todos") \
+        .update({"status": "done"}) \
+        .eq("id", todo_id) \
+        .execute()
+
+
+# =========================
+# 引継系（Supabase）
+# =========================
+# 取得
+def get_logs_supabase(category=None):
+    query = supabase.table("handover_logs").select("*").order("created_at", desc=True)
+
+    if category:
+        query = query.eq("category", category)
+
+    res = query.execute()
+    return res.data
+
+
+# 追加
+def add_log_supabase(title, content, category, user_id, created_at):
+    supabase.table("handover_logs").insert({
+        "title": title,
+        "content": content,
+        "category": category,
+        "created_by": user_id,
+        "created_at": created_at.strftime("%Y-%m-%d")
+    }).execute()
+
+
+# 更新
+def update_log_supabase(log_id, title, content, category):
+    supabase.table("handover_logs").update({
+        "title": title,
+        "content": content,
+        "category": category
+    }).eq("id", log_id).execute()
+
+
+# 削除
+def delete_log_supabase(log_id):
+    supabase.table("handover_logs").delete().eq("id", log_id).execute()
+
+
+# 単体取得（編集用）
+def get_log_by_id_supabase(log_id):
+    res = supabase.table("handover_logs").select("*").eq("id", log_id).single().execute()
+    return res.data
+
+
+# =========================
+# 訓練作成・更新系（Supabase）
+# =========================
+def create_training_supabase(data, target_user_ids):
+
+    data["fiscal_year"] = get_fiscal_year(data["date"])
+
+    res = supabase.table("trainings") \
+        .insert(data) \
+        .execute()
+
+    training_id = res.data[0]["id"]
+
+    # 中間テーブル
+    for uid in target_user_ids:
+        supabase.table("training_targets").insert({
+            "training_id": training_id,
+            "user_id": uid
+        }).execute()
+
+
+def update_training_supabase(training_id, data):
+
+    data["fiscal_year"] = get_fiscal_year(data["date"])
+
+    supabase.table("trainings") \
+        .update(data) \
+        .eq("id", training_id) \
+        .execute()
+
+def delete_training_supabase(training_id):
+
+    supabase.table("training_targets") \
+        .delete() \
+        .eq("training_id", training_id) \
+        .execute()
+
+    supabase.table("trainings") \
+        .delete() \
+        .eq("id", training_id) \
+        .execute()
+
+
+def copy_training_supabase(t):
+
+    data = dict(t)
+    data.pop("id", None)
+    data["title"] = data["title"] + "（コピー）"
+    data["status"] = "planned"
+    data["fiscal_year"] = get_fiscal_year(data["date"])
+
+    res = supabase.table("trainings").insert(data).execute()
+    new_id = res.data[0]["id"]
+
+    # targetsコピー
+    targets = supabase.table("training_targets") \
+        .select("user_id") \
+        .eq("training_id", t["id"]) \
+        .execute()
+
+    for r in targets.data:
+        supabase.table("training_targets").insert({
+            "training_id": new_id,
+            "user_id": r["user_id"]
+        }).execute()
+
+
+def update_training_targets_supabase(training_id, user_ids):
+    # ① 既存削除
+    supabase.table("training_targets")\
+        .delete()\
+        .eq("training_id", training_id)\
+        .execute()
+
+    # ② 新規INSERT（まとめて入れる）
+    if user_ids:
+        data = [
+            {"training_id": training_id, "user_id": uid}
+            for uid in user_ids
+        ]
+
+        supabase.table("training_targets")\
+            .insert(data)\
+            .execute()
+
+
+def get_training_target_ids_supabase(training_id):
+    res = supabase.table("training_targets")\
+        .select("user_id")\
+        .eq("training_id", training_id)\
+        .execute()
+
+    return [r["user_id"] for r in res.data]
+
+
+def get_training_target_names_supabase(training_id):
+    res = supabase.table("training_targets")\
+        .select("users(name)")\
+        .eq("training_id", training_id)\
+        .execute()
+
+    return [r["users"]["name"] for r in res.data if r.get("users")]
+
+
+# =========================
+# 訓練一覧系（Supabase）
+# =========================
+def get_trainings_supabase(fiscal_year=None):
+    query = supabase.table("trainings")\
+        .select("*")\
+        .order("date", desc=True)\
+
+    if fiscal_year:
+        query = query.eq("fiscal_year", fiscal_year)
+
+    res = query.execute()
+    return res.data
+
+
+def get_attendance_count_supabase(training_id):
+    res = supabase.table("training_attendance") \
+        .select("attend_status") \
+        .eq("training_id", training_id) \
+        .execute()
+
+    present = sum(1 for r in res.data if r["attend_status"] == "present")
+    absent = sum(1 for r in res.data if r["attend_status"] == "absent")
+
+    return present, absent
+
+
+def save_attendance_supabase(training_id, user_id, status, mode="planned"):
+    column = "attend_status" if mode == "planned" else "actual_status"
+
+    supabase.table("training_attendance").upsert(
+        {
+            "training_id": training_id,
+            "user_id": user_id,
+            column: status
+        },
+        on_conflict="training_id,user_id"
+        ).execute()
+
+
+def get_incidents_map_supabase():
+    res = supabase.table("training_incident") \
+        .select("training_id, has_incident") \
+        .execute()
+
+    return {r["training_id"]: r["has_incident"] for r in res.data}
+
+
+def get_training_years_supabase():
+    res = supabase.table("trainings") \
+        .select("fiscal_year") \
+        .execute()
+
+    years = list(set(r["fiscal_year"] for r in res.data if r["fiscal_year"]))
+    return sorted(years, reverse=True)
+
+
+# =========================
+# 訓練詳細系（Supabase）
+# =========================
+def get_training_supabase(training_id):
+    return (
+        supabase.table("trainings")
+        .select("*")
+        .eq("id", training_id)
+        .single()
+        .execute()
+        .data
     )
-    """)
-    
-    # 項目定義テーブル
-    # field_type: text / number / date / select
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_fields (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        field_name TEXT NOT NULL,
-        field_type TEXT NOT NULL,
-        sort_order INTEGER DEFAULT 0
-    )
-    """)
-    
-    # 値テーブル
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_field_values (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        field_id INTEGER,
-        value TEXT,
-        UNIQUE(user_id, field_id)
-    )
-    """)
 
-    # units（自治会）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS units (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        required_members INTEGER DEFAULT 0,
-        leader_name TEXT,
-        leader_phone TEXT,
-        leader_term INTEGER,
-        leader_start_date TEXT
-    )
-    """)
 
-    # trainings（訓練）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS trainings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
+def get_active_users_supabase(target_date):
+    if not target_date:
+        return []
 
-        date TEXT NOT NULL,
-        fiscal_year INTEGER,
-        
-        start_time TEXT,
-        end_time TEXT,
-        
-        location TEXT,
-        
-        meeting_point TEXT,
-        meeting_time TEXT,
-        uniform TEXT,
-        
-        reward_amount INTEGER,
-        
-        status TEXT DEFAULT 'planned',
-        
-        created_by INTEGER,
-        
-        event_type TEXT DEFAULT 'none',
-        
-        target_scope TEXT DEFAULT 'all',
-        target_roles TEXT,
-        target_user_ids TEXT,
-        
-        required_members INTEGER DEFAULT 0,
-        
-        note TEXT,
-        
-        created_at TEXT,
-        updated_at TEXT
-    )
-    """)
-
-    # training_targets（対象団員）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_targets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        training_id INTEGER,
-        user_id INTEGER
-    )
-    """)
-
-    # attendance（出欠）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        training_id INTEGER,
-        user_id INTEGER,
-        
-        attend_status TEXT,
-        actual_status TEXT, 
-        meal_option TEXT,
-        
-        created_at TEXT,
-        
-        UNIQUE(training_id, user_id)
-    )
-    """)
-    
-    # training_actual_attendance（実出欠）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_actual_attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        training_id INTEGER,
-        user_id INTEGER,
-        
-        is_present INTEGER,
-        
-        confirmed_by INTEGER,
-        confirmed_at TEXT,
-        UNIQUE(training_id, user_id)
-    )
-    """)
-
-    # training_fuel（給油）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_fuel (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        training_id INTEGER,
-        
-        fuel_done INTEGER,
-        fuel_amount REAL,
-        odometer INTEGER,
-        
-        note TEXT,
-        recorded_by INTEGER,
-        recorded_at TEXT
-    )
-    """)
-
-    # training_hose（ホース本体）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_hose (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        training_id INTEGER,
-        
-        hose_count INTEGER,
-        
-        recorded_at TEXT
-    )
-    """)
-
-    # training_hose（ホース本体）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_hose_members (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        hose_id INTEGER,
-        user_id INTEGER,
-        hose_count INTEGER
-    )
-    """)
-
-    # training_hose（ホース本体）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_incident (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        training_id INTEGER,
-        
-        has_incident INTEGER,
-        
-        injury_flag INTEGER,
-        traffic_accident_flag INTEGER,
-        
-        police_called INTEGER,
-        reported_to_commander INTEGER,
-        reported_to_hq INTEGER,
-        
-        incident_datetime TEXT,
-        incident_location TEXT,
-        
-        incident_summary TEXT,
-        injury_details TEXT,
-        damage_details TEXT,
-        
-        note TEXT,
-        
-        recorded_at TEXT
+    return (
+        supabase.table("users")
+        .select("*")
+        .or_(
+            "join_date.is.null,join_date.lte." + target_date
         )
-    """)
-
-    # todos（ToDo）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS todos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        deadline TEXT,
-        status TEXT DEFAULT 'open'
+        .or_(
+            "leave_date.is.null,leave_date.gte." + target_date
+        )
+        .execute()
+        .data
     )
-    """)
-
-    # role_history（役職履歴）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS role_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        role TEXT,
-        start_date TEXT,
-        end_date TEXT
-    )
-    """)
-    
-    # user_history（履歴）
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        changed_by TEXT,
-        field_name TEXT,
-        old_value TEXT,
-        new_value TEXT,
-        changed_at TEXT
-    )
-    """)
-    
-    # 役職報酬マスタ
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS role_rewards (
-        role TEXT PRIMARY KEY,
-        amount INTEGER
-    )
-    """)
 
 
-    # =========================
-    # 訓練種別マスタ
-    # =========================
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_types (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL
+def get_attendance_supabase(training_id):
+    return (
+        supabase.table("training_attendance")
+        .select("*")
+        .eq("training_id", training_id)
+        .execute()
+        .data
     )
-    """)
 
-    # =========================
-    # 団員ごとの訓練回数
-    # =========================
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS training_counts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        training_type_id INTEGER,
-        count INTEGER DEFAULT 0,
-        UNIQUE(user_id, training_type_id)
+
+def save_meal_supabase(training_id, user_id, meal_option):
+    supabase.table("training_attendance").upsert(
+        {
+            "training_id": training_id,
+            "user_id": user_id,
+            "meal_option": meal_option
+        },
+        on_conflict="training_id,user_id"
+    ).execute()
+
+
+def get_hose_counts_supabase(hose_id):
+    rows = (
+        supabase.table("training_hose_members")
+        .select("user_id,hose_count")
+        .eq("hose_id", hose_id)
+        .execute()
+        .data
     )
-    """)
 
-    conn.commit()
-    conn.close()
+    return {r["user_id"]: r["hose_count"] for r in rows}
+
+
+def create_training_hose_supabase(training_id, hose_count):
+    res = supabase.table("training_hose").insert({
+        "training_id": training_id,
+        "hose_count": hose_count
+    }).execute()
+
+    return res.data[0]["id"]
+
+
+def save_hose_count_supabase(hose_id, user_id, count):
+    supabase.table("training_hose_members").upsert(
+        {
+            "hose_id": hose_id,
+            "user_id": user_id,
+            "hose_count": count
+        },
+        on_conflict="hose_id,user_id"
+    ).execute()
+
+
+def get_incident_supabase(training_id):
+    data = (
+        supabase.table("training_incident")
+        .select("*")
+        .eq("training_id", training_id)
+        .order("id", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+
+    return data[0] if data else None
+
+
+def save_incident_supabase(training_id, data):
+    payload = {
+        "training_id": training_id,
+        **data
+    }
+
+    supabase.table("training_incident").upsert(
+        payload,
+        on_conflict="training_id"
+    ).execute()
+
+
+def get_attendance_count_supabase(training_id):
+    rows = (
+        supabase.table("training_attendance")
+        .select("attend_status")
+        .eq("training_id", training_id)
+        .execute()
+        .data
+    )
+
+    present = sum(1 for r in rows if r["attend_status"] == "present")
+    absent = sum(1 for r in rows if r["attend_status"] == "absent")
+
+    return present, absent
+
+
+def get_training_target_ids_supabase(training_id):
+    res = supabase.table("training_targets") \
+        .select("user_id") \
+        .eq("training_id", training_id) \
+        .execute()
+
+    return [r["user_id"] for r in res.data]
+
+
+def get_target_users_frontend(training, users, targets, target_date):
+
+    roles = targets.get("roles")
+    individual_ids = targets.get("individual_ids") or []
+
+    # -------------------------
+    # ① 個別指定がある場合
+    # -------------------------
+    if individual_ids:
+        return [u for u in users if u["id"] in individual_ids]
+
+    # -------------------------
+    # ② 役職指定がある場合
+    # -------------------------
+    if roles:
+        role_list = [r.strip() for r in roles.split(",")]
+        return [u for u in users if u.get("role") in role_list]
+
+    # -------------------------
+    # ③ 全員対象
+    # -------------------------
+    return users
+
+
+def is_active(user, target_date):
+    return (
+        not user["leave_date"]
+        or user["leave_date"] == ""
+        or user["leave_date"] >= target_date
+    )
+
+
+def authenticate_user_supabase(login_id, password):
+    res = supabase.table("users").select("*").eq("login_id", login_id).execute()
+
+    if not res.data:
+        return None
+
+    user = res.data[0]
+
+    if verify_password(password, user["password_hash"], user["salt"]):
+        return user
+
+    return None
+
+
+# =========================
+# ホーム画面系supabase
+# =========================
+def get_next_training_supabase():
+    return supabase.table("trainings")\
+        .select("*")\
+        .gte("date", datetime.now().strftime("%Y-%m-%d"))\
+        .order("date", desc=False)\
+        .limit(1)\
+        .execute().data[0] if supabase.table("trainings").select("*").execute().data else None
+
+
+def get_user_attendance_supabase(training_id, user_id):
+    res = supabase.table("training_attendance")\
+        .select("attend_status")\
+        .eq("training_id", training_id)\
+        .eq("user_id", user_id)\
+        .single()\
+        .execute()
+
+    return res.data["attend_status"] if res.data else None
+
+
+def get_current_fiscal_year():
+    today = datetime.today()
+    return today.year if today.month >= 4 else today.year - 1
 
 
 # =========================
@@ -322,75 +969,20 @@ def verify_password(password: str, hash_val: str, salt: str):
     return check == hash_val
 
 
-# =========================
-# ユーザー作成
-# =========================
-def create_user(login_id, name, password, role, auth_role, unit_id,
-                birth_date, join_date, leave_date,
-                address, phone, email,
-                license_type):
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    password_hash, salt = create_password_hash(password)
-
-    cursor.execute("""
-    INSERT INTO users (
-        login_id,
-        name, role, auth_role, unit_id,
-        birth_date, join_date, leave_date,
-        address, phone, email,
-        license_type,
-        password_hash, salt
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        login_id, 
-        name, role, auth_role, unit_id,
-        birth_date, join_date, leave_date,
-        address, phone, email,
-        license_type,
-        password_hash, salt
-    ))
-
-    conn.commit()
-    conn.close()
-
-# =========================
-# ユーザー作成
-# =========================
-def is_active_user(user):
-    return user["leave_date"] is None or user["leave_date"] == ""
-
-# =========================
-# ログインID自動生成
-# =========================
-def generate_login_id():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT MAX(id) FROM users")
-    max_id = cursor.fetchone()[0] or 0
-
-    new_id = max_id + 1
-
-    conn.close()
-
-    return f"nagashima{new_id:03d}"
-
-# =========================
-# ユーザー更新
-# =========================
-def update_user(user_id, data, dynamic_values, editor):
-    conn = get_connection()
-    cursor = conn.cursor()
+def update_user_supabase(user_id, data, dynamic_values, editor):
 
     # =========================
-    # ① 旧基本データ取得
+    # ① 旧データ取得
     # =========================
-    cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
-    old_user = cursor.fetchone()
+    res = supabase.table("users") \
+        .select("*") \
+        .eq("id", user_id) \
+        .execute()
+
+    if not res.data:
+        return  # ユーザーが存在しない場合は何もしない
+
+    old_user = res.data[0]
 
     # =========================
     # ② 基本項目：履歴
@@ -401,62 +993,64 @@ def update_user(user_id, data, dynamic_values, editor):
         "address", "phone", "email"
     ]
 
+    history_rows = []
+
     for f in fields:
-        if str(old_user[f]) != str(data[f]):
-            add_user_history(
-                cursor,
-                user_id,
-                editor,
-                f,
-                str(old_user[f]),
-                str(data[f])
-            )
+        old_val = str(old_user.get(f, ""))
+        new_val = str(data.get(f, ""))
+
+        if old_val != new_val:
+            history_rows.append({
+                "user_id": user_id,
+                "changed_by": editor,
+                "field_name": f,
+                "old_value": old_val,
+                "new_value": new_val
+            })
 
     # =========================
     # ③ 基本項目：更新
     # =========================
-    cursor.execute("""
-        UPDATE users
-        SET name=?,
-            role=?,
-            unit_id=?,
-            license_type=?,
-            birth_date=?,
-            join_date=?,
-            leave_date=?,
-            address=?,
-            phone=?,
-            email=?
-        WHERE id=?
-    """, (
-        data["name"],
-        data["role"],
-        data["unit_id"],
-        data["license_type"],
-        data["birth_date"],
-        data["join_date"],
-        data["leave_date"],
-        data["address"],
-        data["phone"],
-        data["email"],
-        user_id
-    ))
+    supabase.table("users") \
+        .update({
+            "name": data["name"],
+            "role": data["role"],
+            "unit_id": data["unit_id"],
+            "license_type": data["license_type"],
+            "birth_date": data["birth_date"],
+            "join_date": data["join_date"],
+            "leave_date": data["leave_date"],
+            "address": data["address"],
+            "phone": data["phone"],
+            "email": data["email"]
+        }) \
+        .eq("id", user_id) \
+        .execute()
 
     # =========================
     # ④ 動的項目：旧値取得
     # =========================
-    cursor.execute("""
-        SELECT f.field_name, v.value
-        FROM user_fields f
-        LEFT JOIN user_field_values v
-        ON f.id = v.field_id AND v.user_id = ?
-    """, (user_id,))
-    
-    rows = cursor.fetchall()
-    old_dynamic = {
-        r["field_name"]: r["value"]or ""
-        for r in rows
+    # フィールド一覧取得
+    fields = supabase.table("user_fields") \
+        .select("*") \
+        .execute().data
+
+    # このユーザーの値だけ取得
+    values = supabase.table("user_field_values") \
+        .select("*") \
+        .eq("user_id", user_id) \
+        .execute().data
+
+    # field_id → value の辞書
+    value_map = {
+        v["field_id"]: v["value"]
+        for v in values
     }
+
+    old_dynamic = {}
+
+    for f in fields:
+        old_dynamic[f["id"]] = value_map.get(f["id"], "")
 
     # =========================
     # ⑤ 動的項目：履歴＋保存
@@ -464,88 +1058,41 @@ def update_user(user_id, data, dynamic_values, editor):
     for field_id, new_value in dynamic_values.items():
 
         # field_name取得
-        cursor.execute(
-            "SELECT field_name FROM user_fields WHERE id=?",
-            (field_id,)
-        )
-        field_name = cursor.fetchone()["field_name"]
+        res = supabase.table("user_fields") \
+            .select("field_name") \
+            .eq("id", field_id) \
+            .execute()
 
-        old_value = old_dynamic.get(field_name, "")
+        if not res.data:
+            continue  # フィールドがない場合はスキップ
 
-        if str(old_value) != str(new_value):
-            add_user_history(
-                cursor,
-                user_id,
-                editor,
-                field_name,
-                str(old_value),
-                str(new_value)
-            )
+        field_name = res.data[0]["field_name"]
+        
+        old_value = str(old_dynamic.get(field_id, ""))
 
-        cursor.execute("""
-            INSERT INTO user_field_values (user_id, field_id, value)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_id, field_id)
-            DO UPDATE SET value=excluded.value
-        """, (user_id, field_id, new_value))
+        if old_value != str(new_value):
+            history_rows.append({
+                "user_id": user_id,
+                "changed_by": editor,
+                "field_name": field_name,
+                "old_value": old_value,
+                "new_value": str(new_value)
+            })
 
-    conn.commit()
-    conn.close()
+        # UPSERT
+        supabase.table("user_field_values").upsert({
+            "user_id": user_id,
+            "field_id": field_id,
+            "value": new_value
+        }).execute()
 
-# =========================
-# 役員経験データの取得
-# =========================
-def get_all_officer_experience():
-    conn = get_connection()
-    cursor = conn.cursor()
+    # =========================
+    # ⑥ 履歴まとめてINSERT
+    # =========================
+    if history_rows:
+        supabase.table("user_history").insert(history_rows).execute()
 
-    roles_to_check = ["分団長", "副分団長"]
-    placeholders = ",".join(["?"] * len(roles_to_check))
 
-    query = f"""
-    SELECT user_id, role FROM role_history
-    WHERE role IN ({placeholders})
-    """
-
-    cursor.execute(query, roles_to_check)
-    rows = cursor.fetchall()
-    conn.close()
-
-    result = {}
-
-    for row in rows:
-        uid = row["user_id"]
-        role = row["role"]
-
-        if uid not in result:
-            result[uid] = {"分団長": False, "副分団長": False}
-
-        result[uid][role] = True
-
-    return result
-
-def get_officer_experience(user_id):
-    exp_map = get_all_officer_experience()
-    return exp_map.get(user_id, {"分団長": False, "副分団長": False})
-
-# =========================
-# ログイン認証
-# =========================
-def authenticate_user(login_id, password):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM users WHERE login_id = ?", (login_id,))
-    user = cursor.fetchone()
-    conn.close()
-
-    if not user:
-        return None
-
-    if verify_password(password, user["password_hash"], user["salt"]):
-        return dict(user)
-
-    return None
 
 # 年度計算
 def get_fiscal_year(date_str):
@@ -553,699 +1100,13 @@ def get_fiscal_year(date_str):
     d = datetime.strptime(date_str, "%Y-%m-%d")
     return d.year if d.month >= 4 else d.year - 1
 
-# =========================
-# 可変項目取得
-# =========================
-def get_user_field_values(user_id):
-    conn = get_connection()
-    cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT f.id as field_id, f.field_name, v.value
-        FROM user_fields f
-        LEFT JOIN user_field_values v
-            ON f.id = v.field_id AND v.user_id = ?
-        ORDER BY f.sort_order ASC, f.id ASC
-    """, (user_id,))
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-# 可変項目保存
-def save_field_value(user_id, field_id, value):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO user_field_values (user_id, field_id, value)
-        VALUES (?, ?, ?)
-        ON CONFLICT(user_id, field_id)
-        DO UPDATE SET value=excluded.value
-    """, (user_id, field_id, value))
-
-    conn.commit()
-    conn.close()
-
-#フィールド取得
-def get_fields():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT * FROM user_fields
-        ORDER BY sort_order ASC, id ASC
-    """)
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-# =========================
-# 
-# =========================
-def get_target_users(training_id, target_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    users_dict = {}
-
-    # =========================
-    # ① 個別指定
-    # =========================
-    cursor.execute("""
-        SELECT u.*
-        FROM training_targets tt
-        JOIN users u ON tt.user_id = u.id
-        WHERE tt.training_id = ?
-        AND (u.leave_date IS NULL OR u.leave_date = '' OR u.leave_date >= ?)
-    """, (training_id, target_date))
-
-    for u in cursor.fetchall():
-        users_dict[u["id"]] = u
-
-    # =========================
-    # ② 役職指定
-    # =========================
-    cursor.execute("SELECT target_roles FROM trainings WHERE id=?", (training_id,))
-    training = cursor.fetchone()
-
-    if training and training["target_roles"]:
-        roles = training["target_roles"].split(",")
-
-        query = f"""
-            SELECT * FROM users
-            WHERE role IN ({",".join(["?"] * len(roles))})
-            AND (leave_date IS NULL OR leave_date = '' OR leave_date >= ?)
-        """
-        cursor.execute(query, roles + [target_date])
-
-        for u in cursor.fetchall():
-            users_dict[u["id"]] = u
-
-    # =========================
-    # ③ 両方なし → 全員
-    # =========================
-    if not users_dict:
-        cursor.execute("""
-            SELECT * FROM users
-            WHERE leave_date IS NULL OR leave_date = '' OR leave_date >= ?
-        """, (target_date,))
-
-        for u in cursor.fetchall():
-            users_dict[u["id"]] = u
-
-    conn.close()
-
-    return list(users_dict.values())
-
-# =========================
-# 
-# =========================
-def get_training_target_ids(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT user_id
-        FROM training_targets
-        WHERE training_id=?
-    """, (training_id,))
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [r["user_id"] for r in rows]
-
-# =========================
-# 初期データ作成
-# =========================
-def seed_data():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # =========================
-    # ユーザー（admin + 一般団員）シード
-    # =========================
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        
-        admin_hash, admin_salt = create_password_hash("1234")
-        
-        cursor.execute("""
-        INSERT INTO users (
-            login_id,
-            name, role, auth_role, unit_id,
-            birth_date, join_date, leave_date,
-            address, phone, email,
-            license_type,
-            password_hash, salt
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            "admin",
-            "管理者",
-            "分団長",
-            "admin",
-            1,
-            "1984-01-01",
-            "2020-04-01",
-            "",
-            "未設定",
-            "000-0000-0000",
-            "admin@test.com",
-            "普通（3.5t）",
-            admin_hash,
-            admin_salt
-        ))
-        
-        cursor.execute("SELECT COUNT(*) FROM user_fields")
-        if cursor.fetchone()[0] == 0:
-            
-            cursor.execute("INSERT INTO user_fields (field_name, field_type) VALUES (?, ?)", ("血液型", "text"))
-            cursor.execute("INSERT INTO user_fields (field_name, field_type) VALUES (?, ?)", ("資格", "text"))
-            cursor.execute("INSERT INTO user_fields (field_name, field_type) VALUES (?, ?)", ("備考", "text"))
-
-    # =========================
-    # 自治会シード
-    # =========================
-    cursor.execute("SELECT COUNT(*) FROM units")
-    if cursor.fetchone()[0] == 0:
-
-        cursor.execute("INSERT INTO units (name) VALUES (?)", ("西川",))
-        cursor.execute("INSERT INTO units (name) VALUES (?)", ("千倉",))
-
-
-    # =========================
-    # 訓練シード
-    # =========================
-    cursor.execute("SELECT COUNT(*) FROM trainings")
-    if cursor.fetchone()[0] == 0:
-        
-        date = "2026-04-15"
-        fiscal_year = get_fiscal_year(date)
-        
-        cursor.execute("""
-    INSERT INTO trainings (
-        title, date, fiscal_year,
-        start_time, end_time,
-        location,
-        meeting_point, meeting_time, uniform,
-        reward_amount, status,
-        created_by, event_type,
-        target_scope, target_roles, target_user_ids,
-        required_members,
-        note, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    """, (
-        "基本放水訓練",
-        date,
-        fiscal_year,
-        "09:00",
-        "11:00",
-        "第1訓練場",
-        "車庫",
-        "08:30",
-        "活動服",
-        3000,
-        "planned",
-        1,
-        "none",
-        "all",
-        None,
-        None,
-        0,
-        ""
-    ))
-    
-    # =========================
-    # 訓練種別（初期データ）
-    # =========================
-    cursor.execute("SELECT COUNT(*) FROM training_types")
-    if cursor.fetchone()[0] == 0:
-        
-        cursor.execute("INSERT INTO training_types (name) VALUES (?)", ("放水訓練",))
-        cursor.execute("INSERT INTO training_types (name) VALUES (?)", ("救助訓練",))
-        cursor.execute("INSERT INTO training_types (name) VALUES (?)", ("防火訓練",))
-
-    # =========================
-    # ToDo
-    # =========================
-    cursor.execute("SELECT COUNT(*) FROM todos")
-    if cursor.fetchone()[0] == 0:
-
-        cursor.execute("""
-        INSERT INTO todos (title, deadline, status)
-        VALUES (?, ?, ?)
-        """, ("備品チェック", "2026-04-18", "open"))
-
-        cursor.execute("""
-        INSERT INTO todos (title, deadline, status)
-        VALUES (?, ?, ?)
-        """, ("消防ポンプ点検", "2026-04-19", "open"))
-
-    # =========================
-    # 役員報酬（シード）
-    # =========================
-    cursor.execute("SELECT COUNT(*) FROM role_rewards")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO role_rewards VALUES (?, ?)", ("分団長", 52185))
-        cursor.execute("INSERT INTO role_rewards VALUES (?, ?)", ("副分団長", 39660))
-        cursor.execute("INSERT INTO role_rewards VALUES (?, ?)", ("団員", 36500))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 年度取得
-# =========================
-def get_fiscal_years(conn):
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT DISTINCT fiscal_year
-        FROM trainings
-        WHERE fiscal_year IS NOT NULL
-        ORDER BY fiscal_year DESC
-    """)
-
-    return [row["fiscal_year"] for row in cursor.fetchall()]
-
-# =========================
-# 次回訓練の出欠取得
-# =========================
-def get_user_attendance(conn, training_id, user_id):
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT attend_status
-        FROM training_attendance
-        WHERE training_id = ? AND user_id = ?
-    """, (training_id, user_id))
-
-    row = cursor.fetchone()
-    return row["attend_status"] if row else None
-
-# =========================
-# 次回訓練の出欠保存
-# =========================
-def save_attendance(conn, training_id, user_id, status):
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO training_attendance (
-            training_id, user_id, attend_status, created_at
-        )
-        VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(training_id, user_id)
-        DO UPDATE SET attend_status = excluded.attend_status
-    """, (training_id, user_id, status))
-
-    conn.commit()
-
-# =========================
-# 次回訓練の取得
-# =========================
-def get_next_training(conn):
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT *
-        FROM trainings
-        WHERE date >= date('now')
-        ORDER BY date ASC
-        LIMIT 1
-    """)
-
-    return cursor.fetchone()
-
-# =========================
-#　報酬取得
-# =========================
-def get_role_reward(conn, user_id, fiscal_year):
-
-    start, end = get_fiscal_year_range(fiscal_year)
-    cursor = conn.cursor()
-
-    # 役職取得
-    cursor.execute("""
-        SELECT DISTINCT role
-        FROM role_history
-        WHERE user_id = ?
-        AND (
-            start_date <= ?
-            AND (end_date IS NULL OR end_date >= ?)
-        )
-    """, (user_id, end, start))
-
-    roles = [row["role"] for row in cursor.fetchall()]
-
-    if not roles:
-        # usersテーブルから現在の役職を取得
-        cursor.execute("SELECT role FROM users WHERE id=?", (user_id,))
-        row = cursor.fetchone()
-
-        if row and row["role"]:
-            roles = [row["role"]]
-        else:
-            roles = ["団員"]
-
-    # 金額取得
-    placeholders = ",".join(["?"] * len(roles))
-
-    cursor.execute(f"""
-        SELECT role, amount
-        FROM role_rewards
-        WHERE role IN ({placeholders})
-    """, roles)
-
-    reward_map = {row["role"]: row["amount"] for row in cursor.fetchall()}
-
-    total = sum(reward_map.get(role, 0) for role in roles)
-
-    return total
-
-# =========================
-# 団員の履歴強化
-# =========================
-def add_user_history(cursor, user_id, changed_by, field_name, old_value, new_value):
-    cursor.execute("""
-        INSERT INTO user_history (
-            user_id, changed_by, field_name, old_value, new_value, changed_at
-        )
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
-    """, (user_id, changed_by, field_name, old_value, new_value))
-
-
-def get_units():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM units")
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-
-# =========================
-# 役員の履歴
-# =========================
-def add_role_history(member_id, role, start_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO role_history (user_id, role, start_date)
-        VALUES (?, ?, ?)
-    """, (member_id, role, start_date))
-
-    conn.commit()
-    conn.close()
 
 # =========================
 # 報酬計算ロジック
 # =========================
-
-
 # 年度範囲取得
 def get_fiscal_year_range(year):
     start = f"{year}-04-01"
     end = f"{year+1}-03-31"
     return start, end
-
-
-# =========================
-# 実績報酬
-# =========================
-def get_user_actual_reward(conn, user_id, fiscal_year):
-
-    start, end = get_fiscal_year_range(fiscal_year)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT t.date, t.title, t.reward_amount, a.actual_status
-        FROM trainings t
-        JOIN training_attendance a
-        ON t.id = a.training_id
-        WHERE a.user_id = ?
-        AND t.date BETWEEN ? AND ?
-        ORDER BY t.date ASC
-    """, (user_id, start, end))
-
-    rows = cursor.fetchall()
-
-    total = 0
-    records = []
-
-    for row in rows:
-        amount = row["reward_amount"] or 0
-
-        if row["actual_status"] == "present":
-            total += amount
-
-        records.append({
-            "date": row["date"],
-            "title": row["title"],
-            "status": row["actual_status"],
-            "source": "actual",
-            "amount": amount if row["actual_status"] == "present" else 0
-        })
-
-    return total, records
-
-
-# =========================
-# 見込み報酬
-# =========================
-def get_user_estimated_reward(conn, user_id, fiscal_year):
-
-    start, end = get_fiscal_year_range(fiscal_year)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT t.date, t.title, t.reward_amount,
-               a.attend_status, a.actual_status
-        FROM trainings t
-        JOIN training_attendance a
-        ON t.id = a.training_id
-        WHERE a.user_id = ?
-        AND t.date BETWEEN ? AND ?
-        ORDER BY t.date ASC
-    """, (user_id, start, end))
-
-    rows = cursor.fetchall()
-
-    total = 0
-    records = []
-
-    for row in rows:
-
-        # 実績優先
-        if row["actual_status"] is not None:
-            status = row["actual_status"]
-            source = "actual"
-        else:
-            status = row["attend_status"]
-            source = "planned"
-
-        amount = row["reward_amount"] or 0
-
-        if status == "present":
-            total += amount
-
-        records.append({
-            "date": row["date"],
-            "title": row["title"],
-            "status": status,
-            "source": source,
-            "amount": amount if status == "present" else 0
-        })
-
-    return total, records
-
-
-
-
-# =========================
-# 統合
-# =========================
-def get_user_reward_summary(conn, user_id, fiscal_year):
-
-    actual_total, actual_records = get_user_actual_reward(conn, user_id, fiscal_year)
-    estimated_total, estimated_records = get_user_estimated_reward(conn, user_id, fiscal_year)
-    role_reward = get_role_reward(conn, user_id, fiscal_year)
-
-    # 見込み側のrecordsを採用（実績も含まれるため）
-    records = estimated_records
-
-    grand_total = estimated_total + role_reward
-
-    return {
-        "actual_total": actual_total,
-        "estimated_total": estimated_total,
-        "role_reward": role_reward,
-        "grand_total": grand_total,
-        "records": records
-    }
-
-
-# =========================
-# ポンプ点検、年末警戒の報酬額取得
-# =========================
-def get_user_specific_training_reward(conn, user_id, fiscal_year, target_titles):
-
-    start, end = get_fiscal_year_range(fiscal_year)
-    cursor = conn.cursor()
-
-    placeholders = ",".join(["?"] * len(target_titles))
-
-    cursor.execute(f"""
-        SELECT t.date, t.title, t.reward_amount,
-               a.attend_status, a.actual_status
-        FROM trainings t
-        JOIN training_attendance a
-        ON t.id = a.training_id
-        WHERE a.user_id = ?
-        AND t.date BETWEEN ? AND ?
-        AND t.title IN ({placeholders})
-        ORDER BY t.date ASC
-    """, [user_id, start, end] + target_titles)
-
-    rows = cursor.fetchall()
-
-    actual_total = 0
-    estimated_total = 0
-    records = []
-
-    for row in rows:
-        amount = row["reward_amount"] or 0
-
-        # =========================
-        # 実績
-        # =========================
-        if row["actual_status"] == "present":
-            actual_total += amount
-
-        # =========================
-        # 見込み（実績優先）
-        # =========================
-        if row["actual_status"] is not None:
-            status = row["actual_status"]
-            source = "actual"
-        else:
-            status = row["attend_status"]
-            source = "planned"
-
-        if status == "present":
-            estimated_total += amount
-
-        records.append({
-            "date": row["date"],
-            "title": row["title"],
-            "status": status,
-            "source": source,
-            "amount": amount if status == "present" else 0
-        })
-
-    return actual_total, estimated_total, records
-
-
-# =========================
-# ホース報酬取得
-# =========================
-def get_hose_reward_summary(conn, user_id, fiscal_year):
-    start, end = get_fiscal_year_range(fiscal_year)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT SUM(h.hose_count) as total_count
-        FROM training_hose_members h
-        JOIN trainings t ON h.hose_id = t.id
-        WHERE h.user_id = ?
-        AND t.date BETWEEN ? AND ?
-    """, (user_id, start, end))
-
-    row = cursor.fetchone()
-
-    total_count = row["total_count"] or 0
-    reward = total_count * 1000
-
-    return total_count, reward
-
-
-# =========================
-# 管理者用一覧
-# =========================
-def get_all_user_reward_summary(conn, fiscal_year):
-
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT id, name FROM users")
-    users = cursor.fetchall()
-
-    result = []
-
-    for user in users:
-        
-        user_id = user["id"]
-
-        data = get_user_reward_summary(conn, user_id, fiscal_year)
-
-        # ★ 特定訓練（my_rewardと同じ）
-        target_titles = ["ポンプ点検", "年末夜警"]
-
-        specific_actual, _, _ = get_user_specific_training_reward(
-            conn,
-            user_id,
-            fiscal_year,
-            target_titles
-        )
-
-        # ★ 徴収額（完全一致ロジック）
-        collection = specific_actual + data["role_reward"]
-
-        result.append({
-            "user_id": user_id,
-            "name": user["name"],
-            "actual": data["actual_total"],
-            "estimated": data["estimated_total"],
-            "role": data["role_reward"],
-            "total": data["grand_total"],
-            "collection": collection
-
-        })
-
-    return result
-
-
-
-# =========================
-# データベース保守用
-# =========================
-def export_db():
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = f"backup_fire_corps_{timestamp}.db"
-
-    shutil.copy(DB_NAME, backup_file)
-
-    return backup_file
-
-def import_db(uploaded_file):
-    backup = f"{DB_NAME}.before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-    # 現在DBを退避
-    if os.path.exists(DB_NAME):
-        shutil.copy(DB_NAME, backup)
-
-    # 一時ファイル経由で復元
-    temp_path = "temp_restore.db"
-
-    with open(temp_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-
-    # 入れ替え
-    shutil.move(temp_path, DB_NAME)
-
-    return backup

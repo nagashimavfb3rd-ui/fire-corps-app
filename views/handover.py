@@ -1,18 +1,12 @@
 import streamlit as st
-import sqlite3
+from db import (
+    get_logs_supabase,
+    add_log_supabase,
+    update_log_supabase,
+    delete_log_supabase,
+    get_log_by_id_supabase
+)
 from datetime import datetime
-
-DB_NAME = "fire_corps.db"
-
-
-# =========================
-# DB接続
-# =========================
-def get_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 
 # =========================
 # 権限チェック
@@ -23,110 +17,6 @@ def is_admin():
         st.session_state.user and
         st.session_state.user["auth_role"] == "admin"
     )
-
-
-# =========================
-# テーブル作成
-# =========================
-def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS handover_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
-        category TEXT NOT NULL,
-        created_by INTEGER,
-        created_at DATE NOT NULL
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 取得
-# =========================
-def get_logs(category=None):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if category and category != "all":
-        cursor.execute("""
-            SELECT * FROM handover_logs
-            WHERE category=?
-            ORDER BY created_at DESC
-        """, (category,))
-    else:
-        cursor.execute("""
-            SELECT * FROM handover_logs
-            ORDER BY created_at DESC
-        """)
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-
-# =========================
-# 追加
-# =========================
-def add_log(title, content, category, user_id, created_at):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO handover_logs (
-            title, content, category, created_by, created_at
-        )
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        title,
-        content,
-        category,
-        user_id,
-        created_at.strftime("%Y-%m-%d")
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 更新
-# =========================
-def update_log(log_id, title, content, category):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE handover_logs
-        SET title=?, content=?, category=?
-        WHERE id=?
-    """, (title, content, category, log_id))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 削除
-# =========================
-def delete_log(log_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        DELETE FROM handover_logs
-        WHERE id=?
-    """, (log_id,))
-
-    conn.commit()
-    conn.close()
-
 
 # =========================
 # UI
@@ -176,7 +66,7 @@ def handover_panel():
                 "運用変更記録": "operation_change",
                 "その他": "other"
             }
-            add_log(
+            add_log_supabase(
                 title,
                 content,
                 category_map[category],
@@ -192,7 +82,7 @@ def handover_panel():
     st.markdown("---")
     st.subheader("📋 一覧")
 
-    logs = get_logs(
+    logs = get_logs_supabase(
         None if category_filter == "すべて"
         else filter_map[category_filter]
     )
@@ -227,7 +117,7 @@ def handover_panel():
             # =========================
             with col2:
                 if st.button("削除", key=f"del_{log['id']}"):
-                    delete_log(log["id"])
+                    delete_log_supabase(log["id"])
                     st.success("削除しました")
                     st.rerun()
 
@@ -237,11 +127,7 @@ def handover_panel():
     if "edit_log" in st.session_state:
         edit_id = st.session_state.edit_log
 
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM handover_logs WHERE id=?", (edit_id,))
-        log = cursor.fetchone()
-        conn.close()
+        log = get_log_by_id_supabase(edit_id)
 
         if log:
             st.markdown("---")
@@ -271,7 +157,7 @@ def handover_panel():
                     "その他": "other"
                 }
                 
-                update_log(
+                update_log_supabase(
                     edit_id,
                     new_title,
                     new_content,
@@ -289,7 +175,6 @@ def handover_panel():
 # 本体
 # =========================
 def main():
-    init_db()
     handover_panel()
 
 # =========================

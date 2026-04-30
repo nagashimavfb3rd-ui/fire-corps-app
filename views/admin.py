@@ -3,15 +3,43 @@ import sqlite3
 import os
 from datetime import datetime
 from db import (
-    get_connection,
-    create_user,
-    get_fiscal_year,
-    generate_login_id,
-    export_db,
-    import_db
+    create_user_supabase,
+    generate_login_id_supabase,
+    get_users_supabase,
+    get_units_supabase,
+    create_unit_supabase,
+    update_unit_supabase,
+    delete_unit_supabase,
+    get_fields_supabase,
+    create_field_supabase,
+    update_field_order_supabase,
+    delete_field_supabase,
+    get_training_types_supabase,
+    create_training_type_supabase,
+    delete_training_type_supabase,
+    update_user_role_supabase,
+    update_role_with_history_supabase,
+    get_role_history_supabase,
+    update_role_history_supabase,
+    delete_role_history_supabase,
+    get_role_rewards_supabase,
+    update_role_reward_supabase,
+    get_trainings_supabase,
+    create_training_supabase,
+    update_training_supabase,
+    delete_training_supabase,
+    create_training_hose_supabase,
+    copy_training_supabase,
+    update_training_targets_supabase,
+    get_training_target_ids_supabase,
+    get_training_target_names_supabase,
+    create_password_hash
 )
 from utils.ui import show_toast, set_toast
 
+
+def get_users():
+    return get_users_supabase()
 
 # =========================
 # 権限チェック
@@ -25,201 +53,8 @@ def is_admin():
 
 
 # =========================
-# ユーザー取得
-# =========================
-def get_users():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM users ORDER BY auth_role DESC")
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-# =========================
 # 訓練管理機能
 # =========================
-# 取得
-def get_trainings():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT * FROM trainings
-        ORDER BY date DESC
-    """)
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-# 訓練作成
-def create_training(data, target_user_ids):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    data["fiscal_year"] = get_fiscal_year(data["date"])
-
-    # 自動でカラムと?を生成
-    columns = ", ".join(data.keys())
-    placeholders = ", ".join(["?"] * len(data))
-
-    sql = f"""
-    INSERT INTO trainings ({columns}, created_at, updated_at)
-    VALUES ({placeholders}, datetime('now'), datetime('now'))
-    """
-
-    cursor.execute(sql, tuple(data.values()))
-
-    # training_id取得
-    training_id = cursor.lastrowid
-
-    #　中間テーブルに保存
-    for user_id in target_user_ids:
-        cursor.execute("""
-            INSERT INTO training_targets (training_id, user_id)
-            VALUES (?, ?)
-        """, (training_id, user_id))
-
-    conn.commit()
-    conn.close()
-
-# 削除
-def delete_training(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM training_targets WHERE training_id=?", (training_id,))
-    cursor.execute("DELETE FROM trainings WHERE id=?", (training_id,))
-
-    conn.commit()
-    conn.close()
-
-# 訓練編集
-def update_training(training_id, data):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    data["fiscal_year"] = get_fiscal_year(data["date"])
-
-    # SET句を自動生成
-    set_clause = ", ".join([f"{key}=?" for key in data.keys()])
-
-    sql = f"""
-    UPDATE trainings
-    SET {set_clause}, updated_at=datetime('now')
-    WHERE id=?
-    """
-
-    values = list(data.values())
-    values.append(training_id)
-
-    cursor.execute(sql, tuple(values))
-
-    conn.commit()
-    conn.close()
-
-# 訓練コピー
-def copy_training(t):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # Row → dictに変換（重要）
-    data = dict(t)
-
-    # 不要なカラム削除
-    data.pop("id", None)
-    data.pop("created_at", None)
-    data.pop("updated_at", None)
-
-    # タイトル変更
-    data["title"] = data["title"] + "（コピー）"
-
-    # ステータスリセット
-    data["status"] = "planned"
-
-    # 年度再計算
-    data["fiscal_year"] = get_fiscal_year(data["date"])
-
-    # INSERT自動生成
-    columns = ", ".join(data.keys())
-    placeholders = ", ".join(["?"] * len(data))
-
-    sql = f"""
-    INSERT INTO trainings ({columns}, created_at, updated_at)
-    VALUES ({placeholders}, datetime('now'), datetime('now'))
-    """
-
-    cursor.execute(sql, tuple(data.values()))
-    
-    new_training_id = cursor.lastrowid
-    
-    # 元の対象ユーザー取得
-    cursor.execute("""
-        SELECT user_id FROM training_targets WHERE training_id=?
-    """, (t["id"],))
-
-    user_ids = [r["user_id"] for r in cursor.fetchall()]
-
-    # コピー
-    for uid in user_ids:
-        cursor.execute("""
-            INSERT INTO training_targets (training_id, user_id)
-            VALUES (?, ?)
-        """, (new_training_id, uid))
-
-    conn.commit()
-    conn.close()
-
-# 訓練の対象団員紐付け
-def update_training_targets(training_id, user_ids):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        DELETE FROM training_targets
-        WHERE training_id=?
-    """, (training_id,))
-
-    for uid in user_ids:
-        cursor.execute("""
-            INSERT INTO training_targets (training_id, user_id)
-            VALUES (?, ?)
-        """, (training_id, uid))
-
-    conn.commit()
-    conn.close()
-
-def get_training_target_names(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT u.name
-        FROM training_targets tt
-        JOIN users u ON tt.user_id = u.id
-        WHERE tt.training_id=?
-    """, (training_id,))
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [r["name"] for r in rows]
-
-def get_training_target_ids(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT user_id FROM training_targets
-        WHERE training_id=?
-    """, (training_id,))
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [r["user_id"] for r in rows]
-
 # 本体
 def training_admin_panel():
     st.subheader("🚒 訓練管理")
@@ -287,7 +122,7 @@ def training_admin_panel():
         note = st.text_area("メモ", key="create_note")
 
         if st.button("作成", key="create_training", use_container_width=True):
-            create_training(
+            create_training_supabase(
                 {
                     "title": title,
                     "date": str(date),
@@ -321,7 +156,7 @@ def training_admin_panel():
     st.markdown("---")
     st.subheader("📋 訓練一覧")
 
-    trainings = get_trainings()
+    trainings = get_trainings_supabase()
 
     for t in trainings:
         st.markdown("---")
@@ -391,7 +226,7 @@ def training_admin_panel():
             user_map = {u["name"]: u["id"] for u in users}
             
             # 現在の対象ユーザー取得（関数がまだ無いので後で追加）
-            current_ids = get_training_target_ids(t["id"])
+            current_ids = get_training_target_ids_supabase(t["id"])
             
             default_users = [name for name, uid in user_map.items() if uid in current_ids]
             
@@ -413,7 +248,7 @@ def training_admin_panel():
             col1, col2 = st.columns(2)
             
             if col1.button("更新", key=f"update_{t['id']}"):
-                update_training(t['id'], {
+                update_training_supabase(t['id'], {
                     "title": title,
                     "date": str(date),
                     "start_time": start_time,
@@ -430,7 +265,7 @@ def training_admin_panel():
                     "note": note
                 })
                 
-                update_training_targets(t['id'], target_user_ids)
+                update_training_targets_supabase(t['id'], target_user_ids)
 
                 st.success("更新しました")
                 del st.session_state.edit_training
@@ -445,18 +280,18 @@ def training_admin_panel():
             st.write(f"📅 {t['date']} {t['start_time']}〜{t['end_time']}")
             st.write(f"📍 {t['location']}")
             st.write(f"💰 {t['reward_amount']}円")
-            names = get_training_target_names(t["id"])
+            names = get_training_target_names_supabase(t["id"])
             if names:
                 st.write("👤 対象者:", ", ".join(names))
                 
             col1, col2, col3 = st.columns(3)
                 
             if col1.button("コピー", key=f"copy_{t['id']}"):
-                copy_training(t)
+                copy_training_supabase(t)
                 st.rerun()
                 
             if col2.button("削除", key=f"del_{t['id']}"):
-                delete_training(t["id"])
+                delete_training_supabase(t["id"])
                 st.rerun()
                 
             if col3.button("編集", key=f"edit_{t['id']}"):
@@ -465,75 +300,12 @@ def training_admin_panel():
 
 
 # =========================
-# 役員交代
-# =========================
-def update_user_role(user_id, auth_role):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE users
-        SET auth_role=?
-        WHERE id=?
-    """, (auth_role, user_id))
-
-    conn.commit()
-    conn.close()
-
-from db import create_user
-
-# =========================
-# 役員交代履歴処理
-# =========================
-def update_role_with_history(user_id, new_role, change_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # 現在の役職取得
-    cursor.execute("SELECT role FROM users WHERE id=?", (user_id,))
-    current_role = cursor.fetchone()["role"]
-
-    target_roles = ["分団長", "副分団長"]
-
-    # =========================
-    # ① 前の役職の終了処理
-    # =========================
-    if current_role in target_roles and new_role != current_role:
-        cursor.execute("""
-        UPDATE role_history
-        SET end_date=?
-        WHERE user_id=? AND role=? AND end_date IS NULL
-        """, (change_date, user_id, current_role))
-
-    # =========================
-    # ② 新しい役職の開始処理
-    # =========================
-    if new_role != current_role and new_role in target_roles:
-        cursor.execute("""
-        INSERT INTO role_history (user_id, role, start_date)
-        VALUES (?, ?, ?)
-        """, (user_id, new_role, change_date))
-
-    # =========================
-    # ③ usersテーブル更新
-    # =========================
-    cursor.execute("""
-    UPDATE users
-    SET role=?
-    WHERE id=?
-    """, (new_role, user_id))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
 # ユーザー追加
 # =========================
 def add_user_panel():
     st.subheader("➕ 団員追加")
 
-    login_id = generate_login_id()
+    login_id = generate_login_id_supabase()
     st.text_input("ログインID", value=login_id, disabled=True)
     name = st.text_input("名前")
     password = st.text_input("初期パスワード", type="password")
@@ -541,8 +313,8 @@ def add_user_panel():
     role = st.selectbox("役職", ["団員", "副分団長", "分団長"])
     auth_role = st.selectbox("権限", ["user", "admin"])
 
-    units = get_units()
-    unit_map = {u["name"]: u["id"] for u in units}
+    units = get_units_supabase()
+    unit_map = {str(u["name"]): u["id"] for u in units}
     unit_name = st.selectbox("自治会", list(unit_map.keys()))
 
     birth_date = st.date_input(
@@ -569,24 +341,27 @@ def add_user_panel():
     email = st.text_input("メール")
 
     license_type = st.text_input("免許")
-
+    
     if st.button("作成", key="create_user"):
         try:
-            create_user(
-                login_id=login_id,
-                name=name,
-                password=password,
-                role=role,
-                auth_role=auth_role,
-                unit_id=unit_map[unit_name],
-                birth_date=str(birth_date),
-                join_date=str(join_date),
-                leave_date=str(leave_date) if leave_date else None,
-                address=address,
-                phone=phone,
-                email=email,
-                license_type=license_type
-            )
+            password_hash, salt = create_password_hash(password)
+            
+            create_user_supabase({
+                "login_id": login_id,
+                "name": name,
+                "role": role,
+                "auth_role": auth_role,
+                "unit_id": unit_map[unit_name],
+                "birth_date": str(birth_date),
+                "join_date": str(join_date),
+                "leave_date": str(leave_date) if leave_date else None,
+                "address": address,
+                "phone": phone,
+                "email": email,
+                "license_type": license_type,
+                "password_hash": password_hash,
+                "salt": salt
+            })
 
             set_toast(f"{name} を追加しました", "success")
 
@@ -595,45 +370,6 @@ def add_user_panel():
         except Exception as e:
             set_toast(f"作成失敗: {e}", "error")
             st.rerun()
-
-def update_unit(unit_id, data):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE units SET
-            name=?,
-            required_members=?,
-            leader_name=?,
-            leader_phone=?,
-            leader_term=?,
-            leader_start_date=?
-        WHERE id=?
-    """, (
-        data["name"],
-        data["required_members"],
-        data["leader_name"],
-        data["leader_phone"],
-        data["leader_term"],
-        data["leader_start_date"],
-        unit_id
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 自治会一覧
-# =========================
-def get_units():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM units")
-    data = cursor.fetchall()
-    conn.close()
-    return data
 
 
 # =========================
@@ -677,10 +413,10 @@ def user_admin_panel():
             
             try:
                 # 権限はそのまま更新
-                update_user_role(u["id"], new_auth)        
+                update_user_role_supabase(u["id"], new_auth)        
                 
                 # 役職は専用関数で処理
-                update_role_with_history(
+                update_role_with_history_supabase(
                     u["id"],
                     new_role,
                     str(change_date)
@@ -694,84 +430,6 @@ def user_admin_panel():
                 set_toast(f"更新失敗: {e}", "error")
                 st.rerun()
 
-# UI：役員履歴編集
-def update_role_history(history_id, role, start_date, end_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE role_history
-        SET role=?, start_date=?, end_date=?
-        WHERE id=?
-    """, (role, start_date, end_date, history_id))
-
-    conn.commit()
-    conn.close()
-
-# UI：役員履歴削除
-def delete_role_history(history_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        DELETE FROM role_history
-        WHERE id=?
-    """, (history_id,))
-
-    conn.commit()
-    conn.close()
-
-# =========================
-# UI：自治会追加
-# =========================
-def create_unit(data):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO units (
-            name,
-            required_members,
-            leader_name,
-            leader_phone,
-            leader_term,
-            leader_start_date
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (
-        data["name"],
-        data["required_members"],
-        data["leader_name"],
-        data["leader_phone"],
-        data["leader_term"],
-        data["leader_start_date"]
-    ))
-
-    conn.commit()
-    conn.close()
-
-# =========================
-# UI：自治会削除
-# =========================
-def delete_unit(unit_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # 使われているかチェック
-    cursor.execute("SELECT COUNT(*) FROM users WHERE unit_id=?", (unit_id,))
-    count = cursor.fetchone()[0]
-
-    if count > 0:
-        conn.close()
-        raise Exception("この自治会は使用中のため削除できません")
-
-    cursor.execute("""
-        DELETE FROM units
-        WHERE id=?
-    """, (unit_id,))
-
-    conn.commit()
-    conn.close()
 
 # =========================
 # UI：自治会編集
@@ -780,7 +438,7 @@ def unit_admin_panel():
     st.subheader("🏘 自治会管理")
 
     #　一覧
-    units = get_units()
+    units = get_units_supabase()
 
     for u in units:
         st.markdown("---")
@@ -825,7 +483,7 @@ def unit_admin_panel():
 
         # 更新
         if col1.button("更新", key=f"update_unit_{u['id']}"):
-            update_unit(u["id"], {
+            update_unit_supabase(u["id"], {
                 "name": new_name,
                 "required_members": required_members,
                 "leader_name": leader_name,
@@ -839,7 +497,7 @@ def unit_admin_panel():
         # 削除
         if col2.button("削除", key=f"delete_unit_{u['id']}"):
             try:
-                delete_unit(u["id"])
+                delete_unit_supabase(u["id"])
                 set_toast("自治会を削除しました", "delete")
                 st.rerun()
             except Exception as e:
@@ -867,7 +525,7 @@ def unit_admin_panel():
             st.error("自治会名を入力してください")
             return
 
-        create_unit({
+        create_unit_supabase({
             "name": new_unit_name,
             "required_members": required_members,
             "leader_name": leader_name,
@@ -890,34 +548,7 @@ def role_history_panel():
         horizontal=True
     )
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    query = """
-        SELECT r.*, u.name
-        FROM role_history r
-        LEFT JOIN users u ON r.user_id = u.id
-    """
-
-    params = []
-
-    if role_filter != "すべて":
-        query += " WHERE r.role = ?"
-        params.append(role_filter)
-    else:
-        query += " WHERE r.role IN ('分団長', '副分団長')"
-
-    query += """
-        ORDER BY 
-            (r.end_date IS NULL) DESC,
-            r.end_date DESC,
-            r.start_date DESC
-    """
-
-    cursor.execute(query, params)
-
-    history = cursor.fetchall()
-    conn.close()
+    history = get_role_history_supabase(role_filter)
 
     for h in history:
         st.markdown("---")
@@ -951,7 +582,7 @@ def role_history_panel():
 
             # 更新
             if col1.button("更新", key=f"update_hist_{h['id']}"):
-                update_role_history(
+                update_role_history_supabase(
                     h["id"],
                     role,
                     str(start_date),
@@ -963,7 +594,7 @@ def role_history_panel():
 
             # 削除
             if col2.button("削除", key=f"delete_hist_{h['id']}"):
-                delete_role_history(h["id"])
+                delete_role_history_supabase(h["id"])
                 st.success("削除しました")
                 st.rerun()
 
@@ -976,7 +607,7 @@ def role_history_panel():
             # =========================
             # 通常表示
             # =========================
-            st.write(f"👤 {h['name']}")
+            st.write(f"👤 {h['users']['name']}")
             end = h['end_date'] if h['end_date'] else "現在"
             st.write(f"🎖 {h['role']}　📅 {h['start_date']} 〜 {end}")
 
@@ -989,7 +620,7 @@ def role_history_panel():
 
             # 削除ボタン（即削除したい場合）
             if col2.button("削除", key=f"del_hist_{h['id']}"):
-                delete_role_history(h["id"])
+                delete_role_history_supabase(h["id"])
                 st.success("削除しました")
                 st.rerun()
 
@@ -1020,16 +651,11 @@ def field_admin_panel():
             st.error("項目名を入力してください")
             return
 
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-        INSERT INTO user_fields (field_name, field_type, sort_order)
-        VALUES (?, ?, ?)
-        """, (field_name, field_type, sort_order))
-
-        conn.commit()
-        conn.close()
+        create_field_supabase(
+            field_name,
+            field_type,
+            sort_order
+        )
 
         st.success(f"「{field_name}」を追加しました")
         st.rerun()
@@ -1040,15 +666,7 @@ def field_admin_panel():
     st.markdown("---")
     st.subheader("📋 現在の項目")
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT * FROM user_fields
-    ORDER BY sort_order ASC, id ASC
-    """)
-    fields = cursor.fetchall()
-    conn.close()
+    fields = get_fields_supabase()
 
     for f in fields:
         col1, col2, col3 = st.columns([3, 2, 1])
@@ -1064,23 +682,13 @@ def field_admin_panel():
             )
             
             if new_order != f["sort_order"]:
-                conn = get_connection()
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                UPDATE user_fields
-                SET sort_order=?
-                WHERE id=?
-                """, (new_order, f["id"]))
-                
-                conn.commit()
-                conn.close()
+                update_field_order_supabase(f["id"], new_order)
                 
                 st.rerun()    
 
         with col3:
             if st.button("削除", key=f"del_field_{f['id']}"):
-                delete_field(f["id"])
+                delete_field_supabase(f["id"])
                 st.success("削除しました")
                 st.rerun()
 
@@ -1097,16 +705,7 @@ def training_type_admin_panel():
             st.error("種別名を入力してください")
             return
 
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-        INSERT INTO training_types (name)
-        VALUES (?)
-        """, (name,))
-
-        conn.commit()
-        conn.close()
+        create_training_type_supabase(name)
 
         st.success("追加しました")
         st.rerun()
@@ -1114,12 +713,8 @@ def training_type_admin_panel():
     st.markdown("---")
     st.subheader("📋 現在の訓練種別")
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM training_types")
-    types = cursor.fetchall()
-    conn.close()
+    # 一覧取得（Supabase）
+    types = get_training_types_supabase()
 
     for t in types:
         col1, col2 = st.columns([3, 1])
@@ -1129,39 +724,8 @@ def training_type_admin_panel():
 
         with col2:
             if st.button("削除", key=f"del_type_{t['id']}"):
-                conn = get_connection()
-                cursor = conn.cursor()
-
-                cursor.execute("""
-                DELETE FROM training_types WHERE id=?
-                """, (t["id"],))
-
-                conn.commit()
-                conn.close()
-
+                delete_training_type_supabase(t["id"])
                 st.rerun()
-
-# =========================
-# 団員管理項目削除
-# =========================
-def delete_field(field_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # 値も削除（重要）
-    cursor.execute("""
-    DELETE FROM user_field_values
-    WHERE field_id=?
-    """, (field_id,))
-
-    # 項目削除
-    cursor.execute("""
-    DELETE FROM user_fields
-    WHERE id=?
-    """, (field_id,))
-
-    conn.commit()
-    conn.close()
 
 # =========================
 # 役職報酬設定
@@ -1170,12 +734,7 @@ def role_reward_settings():
     st.markdown("## 💰 役職報酬設定")
     st.write("支払額が50,000円以上の場合、支払額から、市民税10％、所得税20.42％を引いた金額を設定すること。")
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # 取得
-    cursor.execute("SELECT * FROM role_rewards")
-    rows = cursor.fetchall()
+    rows = get_role_rewards_supabase()
 
     for row in rows:
         role = row["role"]
@@ -1189,60 +748,8 @@ def role_reward_settings():
         )
 
         if new_amount != amount:
-            cursor.execute("""
-                UPDATE role_rewards
-                SET amount = ?
-                WHERE role = ?
-            """, (new_amount, role))
-            conn.commit()
+            update_role_reward_supabase(role, new_amount)
             st.success(f"{role} 更新しました")
-
-    conn.close()
-
-# =========================
-# データベース書き出し・取り込みUI
-# =========================
-def db_admin_panel():
-    st.subheader("💾 データベース管理")
-
-    db_export_ui()
-    st.markdown("---")
-    db_import_ui()
-
-# データベース書き出し部分
-def db_export_ui():
-    st.markdown("### 📤 バックアップ作成")
-
-    if st.button("DBを書き出し"):
-        db_path = export_db()
-
-        with open(db_path, "rb") as f:
-            st.download_button(
-                label="⬇ ダウンロード",
-                data=f,
-                file_name="backup.sqlite",
-                mime="application/x-sqlite3"
-            )
-
-# データベース取り込み部分
-def db_import_ui():
-    st.markdown("### 📥 バックアップ復元")
-
-    uploaded_file = st.file_uploader(
-        "SQLiteファイルを選択",
-        type=["sqlite", "db"]
-    )
-
-    if uploaded_file is not None:
-        temp_path = "temp_import.db"
-
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        if st.button("このデータで復元する（注意）"):
-            backup = import_db(temp_path)
-            st.success(f"復元しました（バックアップ: {backup}）")
-            st.rerun()
 
 
 # =========================
@@ -1257,7 +764,7 @@ def main():
         st.error("管理者のみアクセス可能です")
         return
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🚒 訓練管理",
         "➕ 団員追加",
         "🏘 自治会",
@@ -1265,8 +772,7 @@ def main():
         "👥 役員交代",
         "💰 役職報酬",
         "➕ 項目管理",
-        "🚒 技能種別",
-        "💾 データ管理"
+        "🚒 技能種別"
     ])
     
     with tab1:
@@ -1292,9 +798,6 @@ def main():
         
     with tab8:
         training_type_admin_panel()
-
-    with tab9:
-        db_admin_panel()
 
 if __name__ == "__main__":
     main()

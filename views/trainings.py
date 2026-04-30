@@ -1,84 +1,25 @@
 # views/trainings.py
 import streamlit as st
-import sqlite3
 from datetime import datetime
-from db import get_fiscal_year
-from db import get_target_users
-from db import get_training_target_ids
+from db import (
+    get_fiscal_year,
+    get_training_target_ids_supabase,
+    get_trainings_supabase,
+    get_attendance_count_supabase,
+    get_active_users_supabase,
+    get_target_users_frontend,
+    save_attendance_supabase,
+    get_training_years_supabase,
+    get_incidents_map_supabase
+)
 from utils.pdf import create_training_pdf
 
-DB_NAME = "fire_corps.db"
-
-
-# =========================
-# DB接続
-# =========================
-def get_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-# =========================
-# データ取得
-# =========================
-def get_trainings(fiscal_year=None):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if fiscal_year:
-        cursor.execute("""
-            SELECT * FROM trainings
-            WHERE fiscal_year=?
-            ORDER BY date DESC
-        """, (fiscal_year,))
-    else:
-        cursor.execute("""
-            SELECT * FROM trainings
-            ORDER BY date DESC
-        """)
-    
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-def get_attendance_count(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT
-            SUM(CASE WHEN attend_status='present' THEN 1 ELSE 0 END) as present_count,
-            SUM(CASE WHEN attend_status='absent' THEN 1 ELSE 0 END) as absent_count
-        FROM training_attendance
-        WHERE training_id=?
-    """, (training_id,))
-
-    result = cursor.fetchone()
-    conn.close()
-
-    return result["present_count"] or 0, result["absent_count"] or 0
-
-def get_incidents_map():#事故情報取得関数
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT training_id, has_incident
-        FROM training_incident
-    """)
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    # {training_id: has_incident} に変換
-    return {r["training_id"]: r["has_incident"] for r in rows}
 
 # =========================
 # PDF用関数
 # =========================
 def build_target_label(training):
-    individual_ids = get_training_target_ids(training["id"])
+    individual_ids = get_training_target_ids_supabase(training["id"])
 
     # ① 役職指定
     if training["target_roles"]:
@@ -96,7 +37,7 @@ def build_target_label(training):
 # UI（カード）
 # =========================
 def training_card(training, incident_map):
-    present, absent = get_attendance_count(training["id"])
+    present, absent = get_attendance_count_supabase(training["id"])
 
     total = present + absent
     required = training["required_members"] or 0
@@ -124,17 +65,36 @@ def training_card(training, incident_map):
     
     # 🎯 参加対象表示
     target_roles = training["target_roles"]
-    target_users = get_target_users(training["id"], training["date"])
-    individual_ids = get_training_target_ids(training["id"])
+    individual_ids = get_training_target_ids_supabase(training["id"])
 
+    # ⭐ ここが重要（training_detailと同じ）
+    users = get_active_users_supabase(training["date"])
+
+    targets = {
+        "roles": target_roles,
+        "individual_ids": individual_ids
+    }
+
+    target_users = get_target_users_frontend(
+        training,
+        users,
+        targets,
+        training["date"]
+    )
+
+    # 表示ロジック
     if target_roles:
         st.write(f"🎯 対象役職：{target_roles}")
 
-    if individual_ids:
-        names = [u["name"] for u in target_users if u["id"] in individual_ids]
-        st.write("🎯 個別対象者：" + "、".join(names))
+    elif individual_ids:
+        names = [u["name"] for u in target_users]
 
-    if not target_roles and not individual_ids:
+        if names:
+            st.write("🎯 個別対象者：" + "、".join(names))
+        else:
+            st.write("🎯 個別対象者：なし")
+
+    else:
         st.write("🎯 全員対象")
 
     # 出欠
@@ -167,16 +127,7 @@ def main():
     # -------------------------
     # 年度取得
     # -------------------------
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT DISTINCT fiscal_year
-        FROM trainings
-        ORDER BY fiscal_year DESC
-    """)
-    years = [row["fiscal_year"] for row in cursor.fetchall()]
-    conn.close()
+    years = get_training_years_supabase()
 
     # -------------------------
     # フィルタUI
@@ -195,12 +146,9 @@ def main():
     # -------------------------
     # データ取得
     # -------------------------
-    if selected_year == "すべて":
-        trainings = get_trainings()
-    else:
-        trainings = get_trainings(selected_year)
+    trainings = get_trainings_supabase(selected_year)
     
-    incidents_map = get_incidents_map()
+    incidents_map = get_incidents_map_supabase()
 
     if not trainings:
         st.warning("訓練データがありません")
@@ -214,7 +162,6 @@ def main():
             # ★ここ追加
             trainings_with_target = []
             for t in trainings:
-                t = dict(t)  # Row → dictに変換
                 t["target_label"] = build_target_label(t)
                 trainings_with_target.append(t)
 
@@ -237,8 +184,6 @@ def main():
         if is_past and not show_past:
             continue
         
-        user_unit = st.session_state.user["unit_id"]
-
         training_card(t, incidents_map)
 
 

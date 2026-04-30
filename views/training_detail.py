@@ -1,10 +1,22 @@
 import streamlit as st
-import sqlite3
-from db import get_target_users
-from db import get_training_target_ids
+from db import (
+    get_training_supabase,
+    save_attendance_supabase,
+    get_attendance_supabase,
+    get_active_users_supabase,
+    get_target_users_frontend,
+    save_meal_supabase,
+    save_hose_count_supabase,
+    get_hose_counts_supabase,
+    create_training_hose_supabase,
+    save_incident_supabase,
+    get_incident_supabase,
+    get_training_target_ids_supabase
+)
 from utils.ui import set_toast, show_toast
+import uuid
+from datetime import datetime
 
-DB_NAME = "fire_corps.db"
 
 # =========================
 # ICS生成
@@ -17,16 +29,22 @@ def create_ics(title, date, meeting_time, end_time, meeting_point, note=""):
     mt = mt.zfill(5)
     et = et.zfill(5)
 
-    start = f"{date.replace('-', '')}T{mt.replace(':', '')}00"
-    end = f"{date.replace('-', '')}T{et.replace(':', '')}00"
+    start = f"{date.replace('-', '')}T{mt.replace(':', '')}"
+    end = f"{date.replace('-', '')}T{et.replace(':', '')}"
+
+    # ⭐ 追加（超重要）
+    uid = str(uuid.uuid4())
+    dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
     ics = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Fire Corps App//JP
 BEGIN:VEVENT
+UID:{uid}
+DTSTAMP:{dtstamp}
 SUMMARY:🚒 {title}
-DTSTART:{start}
-DTEND:{end}
+DTSTART;TZID=Asia/Tokyo:{start}
+DTEND;TZID=Asia/Tokyo:{end}
 LOCATION:{meeting_point or ''}
 DESCRIPTION:{note or ''}
 END:VEVENT
@@ -37,13 +55,15 @@ END:VCALENDAR
 
     return ics
 
-# =========================
-# DB接続
-# =========================
-def get_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+
+def parse_datetime(value):
+    if not value:
+        return None
+    try:
+        # スペース → T に変換（これ重要）
+        return datetime.fromisoformat(str(value).replace(" ", "T"))
+    except:
+        return None
 
 
 # =========================
@@ -58,144 +78,21 @@ def is_admin():
 
 
 # =========================
-# データ取得
-# =========================
-def get_training(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM trainings WHERE id=?", (training_id,))
-    data = cursor.fetchone()
-
-    conn.close()
-    return data
-
-
-def get_active_users(target_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT *
-        FROM users
-        WHERE
-            (join_date IS NULL OR join_date <= ?)
-            AND
-            (leave_date IS NULL OR leave_date = '' OR leave_date >= ?)
-        ORDER BY id ASC
-    """, (target_date, target_date))
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-
-def get_attendance(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT * FROM training_attendance
-        WHERE training_id=?
-    """, (training_id,))
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-
-# =========================
 # 出欠更新（予定 or 実績）
 # =========================
 def upsert_attendance(training_id, user_id, status, mode="planned"):
-    current_user = st.session_state.get("user")
-    
-    # 🔒 実績は管理者のみ
-    if mode == "actual" and not is_admin():
-        st.error("管理者のみ実績を変更できます")
-        return
+    data = {
+        "training_id": training_id,
+        "user_id": user_id,
+    }
 
-    # 🔒 予定出欠：自分 or 管理者のみ
     if mode == "planned":
-        if current_user["id"] != user_id and not is_admin():
-            st.error("自分の出欠のみ変更できます")
-            return
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if mode == "actual":
-        column = "actual_status"
+        data["attend_status"] = status
     else:
-        column = "attend_status"
+        data["actual_status"] = status
 
-    cursor.execute("""
-        SELECT id FROM training_attendance
-        WHERE training_id=? AND user_id=?
-    """, (training_id, user_id))
+    save_attendance_supabase(training_id, user_id, status, mode)
 
-    exists = cursor.fetchone()
-
-    if exists:
-        cursor.execute(f"""
-            UPDATE training_attendance
-            SET {column}=?
-            WHERE training_id=? AND user_id=?
-        """, (status, training_id, user_id))
-    else:
-        cursor.execute(f"""
-            INSERT INTO training_attendance (
-                training_id, user_id, attend_status, actual_status, created_at
-            )
-            VALUES (?, ?, ?, ?, datetime('now'))
-        """, (
-            training_id,
-            user_id,
-            status if mode == "planned" else None,
-            status if mode == "actual" else None
-        ))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 
-# =========================
-def save_meal(training_id, user_id, meal_option):
-    current_user = st.session_state.get("user")
-
-    # 🔒 自分 or 管理者のみ
-    if current_user["id"] != user_id and not is_admin():
-        st.error("自分の宴会参加のみ変更できます")
-        return
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id FROM training_attendance
-        WHERE training_id=? AND user_id=?
-    """, (training_id, user_id))
-
-    exists = cursor.fetchone()
-
-    if exists:
-        cursor.execute("""
-            UPDATE training_attendance
-            SET meal_option=?
-            WHERE training_id=? AND user_id=?
-        """, (meal_option, training_id, user_id))
-    else:
-        cursor.execute("""
-            INSERT INTO training_attendance (
-                training_id, user_id, meal_option, created_at
-            )
-            VALUES (?, ?, ?, datetime('now'))
-        """, (training_id, user_id, meal_option))
-
-    conn.commit()
-    conn.close()
 
 # =========================
 # 一括操作（管理者のみ）
@@ -215,167 +112,6 @@ def bulk_attendance(users, training_id, mode="planned"):
             upsert_attendance(training_id, u["id"], "absent", mode)
         st.rerun()
 
-# =========================
-# ホースの片付け登録関数（管理者のみ）
-# =========================
-def save_hose_count(training_id, user_id, count):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id FROM training_hose_members
-        WHERE hose_id=? AND user_id=?
-    """, (training_id, user_id))
-
-    exists = cursor.fetchone()
-
-    if exists:
-        cursor.execute("""
-            UPDATE training_hose_members
-            SET hose_count=?
-            WHERE hose_id=? AND user_id=?
-        """, (count, training_id, user_id))
-    else:
-        cursor.execute("""
-            INSERT INTO training_hose_members (hose_id, user_id, hose_count)
-            VALUES (?, ?, ?)
-        """, (training_id, user_id, count))
-
-    conn.commit()
-    conn.close()
-    
-    set_toast("ホース本数を保存しました", "update")
-
-# =========================
-# ホースの片付け本数取得
-# =========================
-def get_hose_counts(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT user_id, hose_count
-        FROM training_hose_members
-        WHERE hose_id=?
-    """, (training_id,))
-
-    rows = cursor.fetchall()
-
-    # 👇 user_id → 本数 の形にする
-    result = {r["user_id"]: r["hose_count"] for r in rows}
-
-    conn.close()
-    return result
-
-# =========================
-# 事故報告
-# =========================
-def save_incident(training_id, data):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # 既存チェック
-    cursor.execute("""
-        SELECT id FROM training_incident
-        WHERE training_id=?
-        ORDER BY id DESC
-        LIMIT 1
-    """, (training_id,))
-
-    exists = cursor.fetchone()
-
-    if exists:
-        # UPDATE（編集）
-        cursor.execute("""
-            UPDATE training_incident
-            SET
-                has_incident=?,
-                injury_flag=?,
-                traffic_accident_flag=?,
-                police_called=?,
-                reported_to_commander=?,
-                reported_to_hq=?,
-                incident_datetime=?,
-                incident_location=?,
-                incident_summary=?,
-                injury_details=?,
-                damage_details=?,
-                note=?
-            WHERE id=?
-        """, (
-            data["has_incident"],
-            data["injury_flag"],
-            data["traffic_accident_flag"],
-            data["police_called"],
-            data["reported_to_commander"],
-            data["reported_to_hq"],
-            data["incident_datetime"],
-            data["incident_location"],
-            data["incident_summary"],
-            data["injury_details"],
-            data["damage_details"],
-            data["note"],
-            exists["id"]
-        ))
-
-    else:
-        # INSERT（初回）
-        cursor.execute("""
-            INSERT INTO training_incident (
-                training_id,
-                has_incident,
-                injury_flag,
-                traffic_accident_flag,
-                police_called,
-                reported_to_commander,
-                reported_to_hq,
-                incident_datetime,
-                incident_location,
-                incident_summary,
-                injury_details,
-                damage_details,
-                note,
-                recorded_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """, (
-            training_id,
-            data["has_incident"],
-            data["injury_flag"],
-            data["traffic_accident_flag"],
-            data["police_called"],
-            data["reported_to_commander"],
-            data["reported_to_hq"],
-            data["incident_datetime"],
-            data["incident_location"],
-            data["incident_summary"],
-            data["injury_details"],
-            data["damage_details"],
-            data["note"],
-        ))
-
-    conn.commit()
-    conn.close()
-
-    set_toast("事故記録を保存しました", "update")
-
-# =========================
-# 事故報告情報取得
-# =========================
-def get_incident(training_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT * FROM training_incident
-        WHERE training_id=?
-        ORDER BY id DESC
-        LIMIT 1
-    """, (training_id,))
-
-    row = cursor.fetchone()
-    conn.close()
-    return row
 
 # =========================
 # ユーザーカード
@@ -445,7 +181,7 @@ def user_card(user, training_id, planned_status, actual_status, meal_option, eve
             key=f"meal_join_{user['id']}_{training_id}",
             disabled=not can_edit
         ):
-            save_meal(training_id, user["id"], "join")
+            save_meal_supabase(training_id, user["id"], "join")
             st.rerun()
 
         if col6.button(
@@ -453,7 +189,7 @@ def user_card(user, training_id, planned_status, actual_status, meal_option, eve
             key=f"meal_bento_{user['id']}_{training_id}",
             disabled=not can_edit
         ):
-            save_meal(training_id, user["id"], "bento")
+            save_meal_supabase(training_id, user["id"], "bento")
             st.rerun()
 
         if col7.button(
@@ -461,7 +197,7 @@ def user_card(user, training_id, planned_status, actual_status, meal_option, eve
             key=f"meal_no_{user['id']}_{training_id}",
             disabled=not can_edit
         ):
-            save_meal(training_id, user["id"], "no")
+            save_meal_supabase(training_id, user["id"], "no")
             st.rerun()
 
         if col8.button(
@@ -469,7 +205,7 @@ def user_card(user, training_id, planned_status, actual_status, meal_option, eve
             key=f"meal_none_{user['id']}_{training_id}",
             disabled=not can_edit
         ):
-            save_meal(training_id, user["id"], "none")
+            save_meal_supabase(training_id, user["id"], "none")
             st.rerun()
 
 # =========================
@@ -490,20 +226,26 @@ def main():
     if not training_id:
         st.warning("訓練が選択されていません")
         st.stop()
-        
-    # 念のためint変換
-    training_id = int(training_id)
 
-    hose_map = get_hose_counts(training_id)
+    hose_map = get_hose_counts_supabase(st.session_state.hose_parent_id)
 
-    training = get_training(training_id)
+    training = get_training_supabase(training_id)
     training_date = training["date"]
 
-    users = get_active_users(training_date)
-    attendance = get_attendance(training_id)
-    training = get_training(training_id)
-    target_users = get_target_users(training_id, training_date)
-    target_ids = [u["id"] for u in target_users]
+    users = get_active_users_supabase(training_date)
+
+    targets = {
+        "roles": training.get("target_roles"),
+        "individual_ids": get_training_target_ids_supabase(training["id"])
+    }
+
+    users = get_target_users_frontend(
+        training,
+        users,
+        targets,
+        training_date
+    )
+    attendance = get_attendance_supabase(training_id)
 
     if not training:
         st.error("訓練データが見つかりません")
@@ -513,8 +255,7 @@ def main():
 
     # 🎯 参加対象表示
     target_roles = training["target_roles"]
-    target_users = get_target_users(training["id"], training["date"])
-    individual_ids = get_training_target_ids(training["id"])
+    individual_ids = get_training_target_ids_supabase(training["id"])
 
     # 👇 ユーザー表示
     with st.container():
@@ -530,16 +271,19 @@ def main():
 
         # ② 個別指定
         elif individual_ids:
-            names = [u["name"] for u in target_users if u["id"] in individual_ids]
-
+            names = [u["name"] for u in users if u["id"] in individual_ids]
+            
             st.caption("👤 個別指定")
-
-            # 横並び（最大4列）
-            chunk_size = 4
-            for i in range(0, len(names), chunk_size):
-                cols = st.columns(min(chunk_size, len(names) - i))
-                for j, name in enumerate(names[i:i+chunk_size]):
-                    cols[j].success(f"{name}")
+            
+            # ⚠️ 念のため（データ不整合対策）
+            if not names:
+                st.warning("対象者が見つかりません")
+            else:
+                chunk_size = 4
+                for i in range(0, len(names), chunk_size):
+                    cols = st.columns(min(chunk_size, len(names) - i))
+                    for j, name in enumerate(names[i:i+chunk_size]):
+                        cols[j].success(name)
 
         # ③ 全員
         else:
@@ -594,18 +338,26 @@ def main():
     st.caption("※ダウンロード後に開くとカレンダーに追加されます※動作未確認")
 
     # attendance map
-    attendance_map = {
-        a["user_id"]: {
-            "attend_status": a["attend_status"],
-            "meal_option": a["meal_option"],
-            "actual_status": a["actual_status"]
+    attendance_map = {}
+
+    for a in attendance:
+        if not isinstance(a, dict):
+            continue
+
+        user_id = a.get("user_id")
+        if user_id is None:
+            continue
+
+        attendance_map[user_id] = {
+            "attend_status": a.get("attend_status"),
+            "meal_option": a.get("meal_option"),
+            "actual_status": a.get("actual_status")
         }
-        for a in attendance
-    }
 
 
     # 管理者：一括操作
     if is_admin():
+        st.markdown("---")
         mode = st.radio(
             "一括更新モード",
             ["planned", "actual"],
@@ -624,6 +376,8 @@ def main():
     my_planned = my_data.get("attend_status")
     my_meal = my_data.get("meal_option")
     my_actual = my_data.get("actual_status")
+
+    st.markdown("---")
 
     with st.expander("## 🙋 自分の出欠", expanded=False):
         st.info("あなたの出欠を入力してください")
@@ -791,6 +545,10 @@ def main():
     # =========================
     # 🚒 ホース片付け入力（管理者のみ）
     # =========================
+    # 🔧 training_hose は1回だけ作成する
+    if "hose_parent_id" not in st.session_state:
+        st.session_state.hose_parent_id = create_training_hose_supabase(training_id, 0)
+
     if is_admin():
         with st.expander("## 🚒 ホース片付け記録", expanded=False):
             st.info("各団員の片付け本数を入力してください")
@@ -817,7 +575,13 @@ def main():
                         key=f"save_hose_{u['id']}_{training_id}",
                         use_container_width=True
                     ):
-                        save_hose_count(training_id, u["id"], hose_count)
+                        hose_id = st.session_state.hose_parent_id
+                        save_hose_count_supabase(
+                            hose_id,
+                            u["id"],
+                            hose_count
+                        )
+                        set_toast("ホース本数を保存しました", "update")
                         st.rerun()
 
     # =========================
@@ -825,7 +589,7 @@ def main():
     # =========================
     if is_admin():
 
-        incident = dict(get_incident(training_id) or {})
+        incident = dict(get_incident_supabase(training_id) or {})
         
         with st.expander("## 🚨 訓練時事故記録", expanded=False):
 
@@ -860,9 +624,11 @@ def main():
                     value=bool(incident.get("reported_to_hq", 0))
                 )
             
-                incident_datetime = st.text_input(
+                default_dt = parse_datetime(incident.get("incident_datetime"))
+
+                incident_datetime = st.datetime_input(
                     "発生日時",
-                    value=incident.get("incident_datetime", "") or ""
+                    value=default_dt if default_dt else None
                 )
             
                 incident_location = st.text_input(
@@ -893,21 +659,25 @@ def main():
                 submitted = st.form_submit_button("事故記録を保存")
 
                 if submitted:
-                    save_incident(training_id, {
+                    save_incident_supabase(training_id, {
                         "has_incident": int(has_incident),
                         "injury_flag": int(injury_flag),
                         "traffic_accident_flag": int(traffic_accident_flag),
                         "police_called": int(police_called),
                         "reported_to_commander": int(reported_to_commander),
                         "reported_to_hq": int(reported_to_hq),
-                        "incident_datetime": incident_datetime,
+                        "incident_datetime": (
+                            incident_datetime.isoformat()
+                            if incident_datetime
+                            else None
+                        ),
                         "incident_location": incident_location,
                         "incident_summary": incident_summary,
                         "injury_details": injury_details,
                         "damage_details": damage_details,
                         "note": note,
                     })
-
+                    set_toast("事故記録を保存しました", "update")
                     st.rerun()
 
 if __name__ == "__main__":

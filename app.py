@@ -5,14 +5,16 @@ st.set_page_config(
     layout="centered"
 )
 import os
-from db import init_db
-from db import seed_data
-from db import get_connection
-from db import get_next_training
-from db import get_user_reward_summary
-from db import get_hose_reward_summary
-from db import get_user_attendance
-from db import save_attendance
+from db import(
+    authenticate_user_supabase,
+    
+    get_next_training_supabase,
+    get_user_attendance_supabase,
+    save_attendance_supabase,
+    
+    get_user_reward_summary_supabase,
+    get_hose_reward_summary_supabase
+)
 from utils.ui import show_toast
 from datetime import datetime
 
@@ -27,14 +29,6 @@ import views.handover as handover
 import views.admin as admin
 import views.my_reward as my_reward
 import views.admin_reward as admin_reward
-
-# =========================
-# 初期化
-# =========================
-if "db_initialized" not in st.session_state:
-    init_db()
-    seed_data()
-    st.session_state.db_initialized = True
 
 
 # =========================
@@ -57,9 +51,7 @@ def login_page():
     password = st.text_input("パスワード", type="password")
 
     if st.button("ログイン", use_container_width=True):
-        from db import authenticate_user
-
-        user = authenticate_user(login_id, password)
+        user = authenticate_user_supabase(login_id, password)
 
         if user:
             st.session_state.user = user
@@ -89,108 +81,103 @@ def home_page():
 
     st.markdown("---")
 
-    conn = get_connection()
+    # =========================
+    # ① 次回訓練
+    # =========================
+    next_training = get_next_training_supabase()
+    
+    st.markdown("## 🚒 次回訓練")
 
-    try:
-        # =========================
-        # ① 次回訓練
-        # =========================
-        next_training = get_next_training(conn)
+    if next_training:
+        st.success(
+            f"{next_training['date']}｜{next_training['title']}\n\n"
+            f"📍 {next_training['location']}"
+        )
 
-        st.markdown("## 🚒 次回訓練")
-
-        if next_training:
-            st.success(
-                f"{next_training['date']}｜{next_training['title']}\n\n"
-                f"📍 {next_training['location']}"
-            )
-
-            training_id = next_training["id"]
-
-            # =========================
-            # 出欠ステータス取得
-            # =========================
-            status = get_user_attendance(conn, training_id, user_id)
-
-            if status == "present":
-                st.success("✅ 出席予定")
-            elif status == "absent":
-                st.error("❌ 欠席予定")
-            else:
-                st.warning("⚠️ 未回答")
-
-            # =========================
-            # 出欠ボタン
-            # =========================
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button("出席", use_container_width=True):
-                    save_attendance(conn, training_id, user_id, "present")
-                    st.rerun()
-
-            with col2:
-                if st.button("欠席", use_container_width=True):
-                    save_attendance(conn, training_id, user_id, "absent")
-                    st.rerun()
-
-            # =========================
-            # 残り日数
-            # =========================
-            training_date = datetime.strptime(next_training["date"], "%Y-%m-%d")
-            days_left = (training_date - datetime.today()).days
-
-            st.info(f"あと {days_left} 日")
-
-            # =========================
-            # 詳細ボタン
-            # =========================
-            if st.button("詳細を見る"):
-                st.session_state.page = "training_detail"
-                st.rerun()
-            
-            else:
-                st.info("予定されている訓練はありません")
+        training_id = next_training["id"]
 
         # =========================
-        # ② 現在年度の報酬
+        # 出欠ステータス取得
         # =========================
-        today = datetime.today()
-        fiscal_year = today.year if today.month >= 4 else today.year - 1
-        hose_count, hose_reward = get_hose_reward_summary(conn, user_id, fiscal_year)
+        status = get_user_attendance_supabase(training_id, user_id)
 
-        data = get_user_reward_summary(conn, user_id, fiscal_year)
+        if status == "present":
+            st.success("✅ 出席予定")
+        elif status == "absent":
+            st.error("❌ 欠席予定")
+        else:
+            st.warning("⚠️ 未回答")
 
-        st.markdown("---")
-        st.markdown("## 💰 今年度の報酬")
-
+        # =========================
+        # 出欠ボタン
+        # =========================
         col1, col2 = st.columns(2)
 
         with col1:
-            st.metric("実績", f"{data['actual_total']:,}円")
+            if st.button("出席", use_container_width=True):
+                save_attendance_supabase(training_id, user_id, "present")
+                st.rerun()
 
         with col2:
-            st.metric("見込み", f"{data['estimated_total']:,}円")
-
-        st.metric("ホース報酬", f"{hose_reward:,}円")
+            if st.button("欠席", use_container_width=True):
+                save_attendance_supabase(training_id, user_id, "absent")
+                st.rerun()
 
         # =========================
-        # 合計（ホース込み）
+        # 残り日数
         # =========================
-        st.markdown("---")
+        training_date = datetime.strptime(next_training["date"], "%Y-%m-%d")
+        days_left = (training_date - datetime.today()).days
 
-        col3, col4 = st.columns(2)
+        st.info(f"あと {days_left} 日")
 
-        with col3:
-            total_actual = data["actual_total"] + hose_reward
-            st.metric("実績合計", f"{total_actual:,}円")
+        # =========================
+        # 詳細ボタン
+        # =========================
+        if st.button("詳細を見る"):
+            st.session_state.page = "training_detail"
+            st.rerun()
+            
+        else:
+            st.info("予定されている訓練はありません")
 
-        with col4:
-            total_estimated = data["estimated_total"] + hose_reward
-            st.metric("見込合計", f"{total_estimated:,}円")
+    # =========================
+    # ② 現在年度の報酬
+    # =========================
+    today = datetime.today()
+    fiscal_year = today.year if today.month >= 4 else today.year - 1
+    hose_count, hose_reward = get_hose_reward_summary_supabase(user_id, fiscal_year)
 
-    finally:
-        conn.close()
+    data = get_user_reward_summary_supabase(user_id, fiscal_year)
+
+    st.markdown("---")
+    st.markdown("## 💰 今年度の報酬")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("実績", f"{data['actual_total']:,}円")
+
+    with col2:
+        st.metric("見込み", f"{data['estimated_total']:,}円")
+
+    st.metric("ホース報酬", f"{hose_reward:,}円")
+
+    # =========================
+    # 合計（ホース込み）
+    # =========================
+    st.markdown("---")
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        total_actual = data["actual_total"] + hose_reward
+        st.metric("実績合計", f"{total_actual:,}円")
+
+    with col4:
+        total_estimated = data["estimated_total"] + hose_reward
+        st.metric("見込合計", f"{total_estimated:,}円")
+
 
     st.markdown("---")
 

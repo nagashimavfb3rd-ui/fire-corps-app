@@ -1,17 +1,10 @@
 import streamlit as st
-import sqlite3
+from db import (
+    get_todos_supabase,
+    add_todo_supabase,
+    complete_todo_supabase
+)
 from datetime import datetime
-
-DB_NAME = "fire_corps.db"
-
-
-# =========================
-# DB接続
-# =========================
-def get_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 # =========================
@@ -23,57 +16,6 @@ def is_admin():
         st.session_state.user and
         st.session_state.user["auth_role"] == "admin"
     )
-
-
-# =========================
-# データ取得
-# =========================
-def get_todos():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT * FROM todos
-        ORDER BY status ASC, deadline DESC
-    """)
-
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-
-# =========================
-# ToDo追加
-# =========================
-def add_todo(title, deadline):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO todos (title, deadline, status)
-        VALUES (?, ?, 'open')
-    """, (title, deadline))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# 完了処理
-# =========================
-def complete_todo(todo_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE todos
-        SET status='done'
-        WHERE id=?
-    """, (todo_id,))
-
-    conn.commit()
-    conn.close()
-
 
 # =========================
 # UI（カード）
@@ -101,7 +43,7 @@ def todo_card(todo):
     # 完了ボタン（adminのみ）
     if not is_done and is_admin():
         if st.button("完了にする", key=f"done_{todo['id']}", use_container_width=True):
-            complete_todo(todo["id"])
+            complete_todo_supabase(todo["id"])
             st.rerun()
 
 
@@ -116,7 +58,7 @@ def add_todo_ui():
 
     if st.button("追加", use_container_width=True):
         if title:
-            add_todo(title, str(deadline))
+            add_todo_supabase(title, str(deadline))
             st.success("追加しました")
             st.rerun()
         else:
@@ -137,7 +79,7 @@ def main():
     if is_admin():
         add_todo_ui()
 
-    todos = get_todos()
+    todos = get_todos_supabase()
 
     if not todos:
         st.info("ToDoがありません")

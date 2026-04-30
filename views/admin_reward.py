@@ -1,10 +1,10 @@
 import streamlit as st
 from db import (
-    get_connection,
-    get_fiscal_years,
-    get_user_reward_summary,
-    get_user_specific_training_reward,
-    get_hose_reward_summary
+    get_fiscal_years_supabase,
+    get_user_reward_summary_supabase,
+    get_user_specific_training_reward_supabase,
+    get_hose_reward_summary_supabase,
+    get_users_supabase
 )
 from datetime import datetime
 
@@ -29,13 +29,8 @@ def main():
     # =========================
     st.title("📊 団員報酬一覧（管理者）")
 
-    # =========================
-    # DB接続
-    # =========================
-    conn = get_connection()
-
     try:
-        years = get_fiscal_years(conn)
+        years = get_fiscal_years_supabase()
 
         if not years:
             years = [datetime.today().year]
@@ -52,43 +47,29 @@ def main():
             key="admin_reward_year"
         )
 
-        # =========================
-        # 全団員取得
-        # =========================
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name FROM users")
-        users = cursor.fetchall()
+        users = get_users_supabase()
 
         rows = []
 
-        # =========================
-        # 各団員ごとに my_reward と同じ計算
-        # =========================
         for user_row in users:
-
             user_id = user_row["id"]
             name = user_row["name"]
 
-            data = get_user_reward_summary(conn, user_id, fiscal_year)
+            data = get_user_reward_summary_supabase(user_id, fiscal_year)
 
             target_titles = ["ポンプ点検", "年末夜警"]
 
-            specific_actual, specific_estimated, _ = get_user_specific_training_reward(
-                conn,
+            specific_actual, specific_estimated, _ = get_user_specific_training_reward_supabase(
                 user_id,
                 fiscal_year,
                 target_titles
             )
 
-            hose_count, hose_reward = get_hose_reward_summary(
-                conn,
+            hose_count, hose_reward = get_hose_reward_summary_supabase(
                 user_id,
                 fiscal_year
             )
 
-            # =========================
-            # ★ my_rewardと完全一致ロジック
-            # =========================
             adjusted_actual = data['actual_total'] - specific_actual
             adjusted_estimated = data['estimated_total'] - specific_estimated
 
@@ -97,7 +78,7 @@ def main():
 
             total_receive_actual = adjusted_actual + hose_reward
             total_receive_estimated = adjusted_estimated + hose_reward
-
+            
             rows.append({
                 "user_id": user_id,
                 "name": name,
@@ -112,8 +93,10 @@ def main():
                 "hose_reward": hose_reward
             })
 
-    finally:
-        conn.close()
+    except Exception as e:
+        st.error("データ取得に失敗しました")
+        st.write(e)
+        st.stop()
 
     # =========================
     # データなし

@@ -126,7 +126,9 @@ def create_training_pdf(trainings, fiscal_year):
 
             title = t["title"]
             location = t["location"] or "-"
-            time = f"{t['start_time'] or ''}〜{t['end_time'] or ''}"
+            start = (t['start_time'] or '')[:5]
+            end = (t['end_time'] or '')[:5]
+            time = f"{start}〜{end}"
             note = t["note"] or ""
 
             target = t.get("target_label", "全員")
