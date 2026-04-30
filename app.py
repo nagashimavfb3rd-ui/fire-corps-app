@@ -13,7 +13,9 @@ from db import(
     save_attendance_supabase,
     
     get_user_reward_summary_supabase,
-    get_hose_reward_summary_supabase
+    get_hose_reward_summary_supabase,
+    
+    change_password_supabase
 )
 from utils.ui import show_toast
 from datetime import datetime
@@ -178,6 +180,36 @@ def home_page():
         total_estimated = data["estimated_total"] + hose_reward
         st.metric("見込合計", f"{total_estimated:,}円")
 
+    st.markdown("---")
+
+    st.subheader("パスワード変更")
+
+    current_password = st.text_input("現在のパスワード", type="password")
+    new_password = st.text_input("新しいパスワード", type="password")
+    confirm_password = st.text_input("確認用", type="password")
+
+    if st.button("変更する"):
+
+        if not current_password or not new_password:
+            st.error("入力してください")
+
+        elif new_password != confirm_password:
+            st.error("一致しません")
+
+        elif len(new_password) < 6:
+            st.error("6文字以上にしてください")
+
+        else:
+            success, msg = change_password_supabase(
+                st.session_state.user["id"],
+                current_password,
+                new_password
+            )
+
+            if success:
+                st.success(msg)
+            else:
+                st.error(msg)
 
     st.markdown("---")
 

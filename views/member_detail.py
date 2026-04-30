@@ -7,6 +7,7 @@ from db import get_user_supabase
 from db import get_fields_supabase
 from db import get_user_field_values_supabase
 from db import get_officer_experience_supabase
+from db import admin_reset_password_supabase
 from db import supabase
 from utils.ui import calc_years_by_fiscal_year
 
@@ -246,6 +247,30 @@ def main():
         st.markdown("---")
         if is_admin:
             training_count_editor(user_id)
+            
+            st.markdown("---")
+        # =========================
+        # 🔑 パスワード初期化（admin）
+        # =========================
+            st.markdown("### 🔑 パスワード初期化")
+
+            new_password = st.text_input(
+                "新しいパスワード",
+                type="password",
+                key=f"reset_pw_{user_id}"
+            )
+
+            if st.button("パスワード初期化", key=f"reset_btn_{user_id}"):
+
+                if not new_password:
+                    st.error("パスワードを入力してください")
+
+                elif len(new_password) < 6:
+                    st.error("6文字以上にしてください")
+
+                else:
+                    admin_reset_password_supabase(user_id, new_password)
+                    st.success("パスワードを初期化しました")
 
     else:
         # ===== 表示モード =====
@@ -328,6 +353,7 @@ def main():
             for t in types:
                 count = counts_map.get(t["id"], 0)
                 st.write(f"{t['name']}：{count} 回")
+            
 
     st.markdown("---")
 

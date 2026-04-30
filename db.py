@@ -57,6 +57,55 @@ def generate_login_id_supabase():
 
     return f"nagashima{max_num + 1:03d}"
 
+
+def change_password_supabase(user_id, current_password, new_password):
+
+    # ユーザー取得
+    res = supabase.table("users") \
+        .select("password_hash, salt") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+
+    if not res.data:
+        return False, "ユーザーが存在しません"
+
+    user = res.data
+
+    # 現在パスワード確認
+    if not verify_password(current_password, user["password_hash"], user["salt"]):
+        return False, "現在のパスワードが違います"
+
+    # 新パスワード生成
+    new_hash, new_salt = create_password_hash(new_password)
+
+    # 更新
+    supabase.table("users") \
+        .update({
+            "password_hash": new_hash,
+            "salt": new_salt
+        }) \
+        .eq("id", user_id) \
+        .execute()
+
+    return True, "変更しました"
+
+def admin_reset_password_supabase(target_user_id, new_password):
+
+    new_hash, new_salt = create_password_hash(new_password)
+
+    supabase.table("users") \
+        .update({
+            "password_hash": new_hash,
+            "salt": new_salt
+        }) \
+        .eq("id", target_user_id) \
+        .execute()
+
+    return True, "初期化しました"
+
+
+
 def get_units_supabase():
     return supabase.table("units").select("*").execute().data
 

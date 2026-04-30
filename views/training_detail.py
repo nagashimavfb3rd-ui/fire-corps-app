@@ -227,6 +227,11 @@ def main():
         st.warning("訓練が選択されていません")
         st.stop()
 
+    if "hose_parent_id" not in st.session_state or not st.session_state.hose_parent_id:
+        st.session_state.hose_parent_id = create_training_hose_supabase(training_id, 0)
+
+    hose_parent_id = st.session_state.hose_parent_id
+
     hose_map = get_hose_counts_supabase(st.session_state.hose_parent_id)
 
     training = get_training_supabase(training_id)
