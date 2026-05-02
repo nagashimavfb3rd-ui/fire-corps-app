@@ -682,7 +682,9 @@ def field_admin_panel():
             )
             
             if new_order != f["sort_order"]:
-                update_field_order_supabase(f["id"], new_order)
+                update_field_order_supabase([
+                    {"id": f["id"], "sort_order": new_order}
+                ])
                 
                 st.rerun()    
 

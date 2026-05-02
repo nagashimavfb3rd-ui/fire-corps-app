@@ -1154,11 +1154,14 @@ def update_user_supabase(user_id, data, dynamic_values, editor):
             })
 
         # UPSERT
-        supabase.table("user_field_values").upsert({
-            "user_id": user_id,
-            "field_id": field_id,
-            "value": new_value
-        }).execute()
+        supabase.table("user_field_values").upsert(
+            {
+                "user_id": user_id,
+                "field_id": field_id,
+                "value": new_value
+            },
+            on_conflict="user_id,field_id"
+        ).execute()
 
     # =========================
     # ⑥ 履歴まとめてINSERT
