@@ -70,7 +70,9 @@ def create_training_pdf(trainings, fiscal_year):
         "NormalJP",
         parent=styles["Normal"],
         fontName="HeiseiKakuGo-W5",
-        fontSize=10
+        fontSize=10,
+        leading=12,      # 行間
+        wordWrap='CJK'   # 日本語折り返し（重要）
     )
 
     elements = []
@@ -99,7 +101,12 @@ def create_training_pdf(trainings, fiscal_year):
         grouped[month].append(t)
 
     # 月順に並べる
-    for month in sorted(grouped.keys()):
+    month_order = list(range(4, 13)) + list(range(1, 4))
+
+    for month in month_order:
+
+        if month not in grouped:
+            continue
 
         # =========================
         # 月タイトル
@@ -136,10 +143,10 @@ def create_training_pdf(trainings, fiscal_year):
             data.append([
                 date_str,
                 Paragraph(title, normal_style),
-                location,
+                Paragraph(location, normal_style),
                 time,
                 target,
-                note
+                Paragraph(note, normal_style)
             ])
 
         # =========================
@@ -166,6 +173,9 @@ def create_training_pdf(trainings, fiscal_year):
 
             # 内容は左寄せ
             ("ALIGN", (1, 1), (1, -1), "LEFT"),
+
+            # ★ 縦位置中央
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
 
             # グリッド
             ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
