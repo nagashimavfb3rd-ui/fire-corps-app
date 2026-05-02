@@ -81,6 +81,8 @@ def home_page():
     user = st.session_state.user
     user_id = user["id"]
 
+    st.write("左上の＞＞ボタンでサイドメニューを開閉してページ遷移してください。")
+
     st.markdown("---")
 
     # =========================

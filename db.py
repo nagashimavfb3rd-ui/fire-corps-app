@@ -738,6 +738,31 @@ def get_training_target_names_supabase(training_id):
     return [r["users"]["name"] for r in res.data if r.get("users")]
 
 
+def get_all_trainings_ordered_supabase():
+    res = supabase.table("trainings") \
+        .select("id,date") \
+        .order("date").order("id") \
+        .execute()
+
+    return res.data or []
+
+
+def get_prev_next_training(training_id):
+    trainings = get_all_trainings_ordered_supabase()
+
+    ids = [t["id"] for t in trainings]
+
+    if training_id not in ids:
+        return None, None
+
+    idx = ids.index(training_id)
+
+    prev_id = ids[idx - 1] if idx > 0 else None
+    next_id = ids[idx + 1] if idx < len(ids) - 1 else None
+
+    return prev_id, next_id
+
+
 # =========================
 # 訓練一覧系（Supabase）
 # =========================

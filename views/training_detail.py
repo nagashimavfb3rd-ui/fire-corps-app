@@ -11,7 +11,9 @@ from db import (
     create_training_hose_supabase,
     save_incident_supabase,
     get_incident_supabase,
-    get_training_target_ids_supabase
+    get_training_target_ids_supabase,
+    get_all_trainings_ordered_supabase,
+    get_prev_next_training
 )
 from utils.ui import set_toast, show_toast
 import uuid
@@ -395,6 +397,31 @@ def main():
             my_meal,
             event_type
         )
+
+    # =========================
+    # ⏮ ⏭ 前後ナビゲーション
+    # =========================
+    prev_id, next_id = get_prev_next_training(training_id)
+
+    if prev_id is None and next_id is None:
+        st.caption("前後の訓練はありません")
+
+    col1, col2, col3 = st.columns([1,2,1])
+
+    with col2:
+        st.caption("訓練を切り替え")
+
+    with col1:
+        if prev_id:
+            if st.button("← 前", key="prev_btn", use_container_width=True):
+                st.session_state.training_id = prev_id
+                st.rerun()
+
+    with col3:
+        if next_id:
+            if st.button("次 →", key="next_btn", use_container_width=True):
+                st.session_state.training_id = next_id
+                st.rerun()
 
     # =========================
     # 👥 出欠一覧（テーブル表示）
