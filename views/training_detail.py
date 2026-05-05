@@ -178,7 +178,10 @@ def user_card(user, training_id, planned_status, actual_status, meal_option, eve
         else:
             st.warning("宴会・食事会：未定")
 
-        st.markdown("🍻 宴会参加")
+        if event_type == "party":
+            st.markdown("🍻 宴会参加")
+        elif event_type == "meal":
+            st.markdown("🍱 食事会参加")
 
         col5, col6, col7, col8 = st.columns(4)
 
@@ -366,18 +369,6 @@ def main():
         }
 
 
-    # 管理者：一括操作
-    if is_admin():
-        st.markdown("---")
-        mode = st.radio(
-            "一括更新モード",
-            ["planned", "actual"],
-            format_func=lambda x: "出席予定" if x == "planned" else "実出席",
-            horizontal=True
-        )
-
-        bulk_attendance(users, training_id, mode=mode)
-
     current_user = st.session_state.get("user")
 
     # =========================
@@ -428,35 +419,31 @@ def main():
                 st.rerun()
 
     # =========================
-    # 👥 出欠一覧（テーブル表示）
+    # 👥 出欠一覧（1行コンパクト表示）
     # =========================
     st.markdown("---")
-    st.markdown("## 👥 出欠一覧")
-    
+    st.markdown("## 👥 出欠集計・一覧")
+
     # 🔽 ソート（出席 → 未定 → 欠席）
     def sort_key(u):
         data = attendance_map.get(u["id"], {})
         status = data.get("attend_status")
-        
         order = {
             "present": 0,
             None: 1,
             "absent": 2
         }
         return order.get(status, 1)
-    
+
     sorted_users = sorted(users, key=sort_key)
-    
+
     # =========================
     # 📊 出欠集計
     # =========================
-
-    # 訓練出欠
     train_present = 0
     train_pending = 0
     train_absent = 0
 
-    # 宴会・食事会
     meal_join = 0
     meal_pending = 0
     meal_absent = 0
@@ -464,9 +451,8 @@ def main():
 
     for u in users:
         data = attendance_map.get(u["id"], {})
-
-        # --- 訓練 ---
         status = data.get("attend_status")
+
         if status == "present":
             train_present += 1
         elif status == "absent":
@@ -474,7 +460,6 @@ def main():
         else:
             train_pending += 1
 
-        # --- 宴会 ---
         if event_type in ["party", "meal"]:
             meal = data.get("meal_option")
 
@@ -487,96 +472,86 @@ def main():
             else:
                 meal_pending += 1
 
-    # =========================
-    # 📢 表示
-    # =========================
-
-    st.markdown("### 📊 出欠集計")
-
     st.success(
         f"訓練出欠：出席 {train_present}名　未定 {train_pending}名　欠席 {train_absent}名"
     )
 
-    # 🍻 イベントがあるときだけ表示
     if event_type in ["party", "meal"]:
         st.info(
             f"宴会（食事会）出欠：出席 {meal_join}名　未定 {meal_pending}名　欠席 {meal_absent}名　弁当 {meal_bento}名"
         )
-    
-    # 🔽 ヘッダー
+
+    # =========================
+    # 📱 1行表示
+    # =========================
+    with st.expander("👥 出欠一覧", expanded=False):
+        for u in sorted_users:
+            data = attendance_map.get(u["id"], {})
+            planned = data.get("attend_status")
+            meal = data.get("meal_option")
+            actual = data.get("actual_status")
+
+            # --- 出欠予定 ---
+            status_text = "🟡未定"
+            if planned == "present":
+                status_text = "🟢出席"
+            elif planned == "absent":
+                status_text = "🔴欠席"
+
+            # --- 食事会 ---
+            meal_text = ""
+            if event_type in ["party", "meal"]:
+                if meal == "join":
+                    meal_text = "🍻参加"
+                elif meal == "bento":
+                    meal_text = "🍱弁当"
+                elif meal == "no":
+                    meal_text = "❌不参加"
+                else:
+                    meal_text = "❔未定"
+
+            # --- 実出席（管理者だけ表示） ---
+            actual_icon = ""
+            if is_admin():
+                if actual == "present":
+                    actual_icon = "｜🟢"
+                elif actual == "absent":
+                    actual_icon = "｜🔴"
+                else:
+                    actual_icon = "｜🟡"
+
+            # --- 名前 ---
+            name = u["name"]
+            if u["id"] == current_user["id"]:
+                name += "（あなた）"
+
+            # --- レイアウト ---
+            col1, col2 = st.columns([4, 2])
+
+            col1.write(f"{name}｜{status_text} {meal_text} {actual_icon}")
+
+            # --- 管理者のみ操作（実出席トグル） ---
+            if is_admin():
+                btn_label = "出席" if actual != "present" else "取消"
+
+                if col2.button(btn_label, key=f"act_{u['id']}_{training_id}"):
+                    new_status = "present" if actual != "present" else "absent"
+                    upsert_attendance(training_id, u["id"], new_status, "actual")
+                    st.rerun()
+
+
+    # 管理者：一括操作
     if is_admin():
-        col1, col2, col3, col4, col5 = st.columns([2,2,2,2,3])
-        col1.markdown("**団員名**")
-        col2.markdown("**出欠予定**")
-        col3.markdown("**宴会出欠**")
-        col4.markdown("**実出席**")
-        col5.markdown("**操作**")
-    else:
-        col1, col2, col3, col4 = st.columns([2,2,2,2])
-        col1.markdown("**団員名**")
-        col2.markdown("**出欠予定**")
-        col3.markdown("**宴会出欠**")
-        col4.markdown("**実出席**")
-    
-    # 🔽 行表示
-    for u in sorted_users:
-        data = attendance_map.get(u["id"], {})
-        planned = data.get("attend_status")
-        meal = data.get("meal_option")
-        actual = data.get("actual_status")
+        st.markdown("---")
+        mode = st.radio(
+            "一括更新モード",
+            ["planned", "actual"],
+            format_func=lambda x: "出席予定" if x == "planned" else "実出席",
+            horizontal=True
+        )
 
-        if is_admin():
-            col1, col2, col3, col4, col5 = st.columns([2,2,2,2,3])
-        else:
-            col1, col2, col3, col4 = st.columns([2,2,2,2])
+        bulk_attendance(users, training_id, mode=mode)
 
-        # 名前
-        name = u["name"]
-        if u["id"] == current_user["id"]:
-            name += "（あなた）"
-        
-        col1.write(name)
-
-        # 出欠予定
-        if planned == "present":
-            col2.success("出席")
-        elif planned == "absent":
-            col2.error("欠席")
-        else:
-            col2.warning("未定")
-
-        # 宴会
-        if event_type in ["party", "meal"]:
-            if meal == "join":
-                col3.success("参加")
-            elif meal == "bento":
-                col3.info("弁当")
-            elif meal == "no":
-                col3.error("不参加")
-            else:
-                col3.warning("未定")
-        else:
-            col3.write("-")
-        
-        # 実出席
-        if actual == "present":
-            col4.success("出席")
-        elif actual == "absent":
-            col4.error("欠席")
-        else:
-            col4.warning("未")
-
-        # 操作（管理者のみ）
-        if is_admin():
-            c1, c2 = col5.columns(2)
-
-            if c1.button("出席", key=f"act_p_{u['id']}_{training_id}"):
-                upsert_attendance(training_id, u["id"], "present", "actual")
-                st.rerun()
-
-            if c2.button("欠席", key=f"act_a_{u['id']}_{training_id}"):
-                upsert_attendance(training_id, u["id"], "absent", "actual")
-                st.rerun()
 
     # =========================
     # 🚒 ホース片付け入力（管理者のみ）
@@ -586,6 +561,7 @@ def main():
         st.session_state.hose_parent_id = create_training_hose_supabase(training_id, 0)
 
     if is_admin():
+        st.markdown("---")
         with st.expander("## 🚒 ホース片付け記録", expanded=False):
             st.info("各団員の片付け本数を入力してください")
 
@@ -724,6 +700,8 @@ def main():
     # 🚨 事故記録フォーム（ホースの下）
     # =========================
     if is_admin():
+        
+        st.markdown("---")
 
         incident = dict(get_incident_supabase(training_id) or {})
         

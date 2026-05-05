@@ -189,6 +189,7 @@ def home_page():
         # 詳細ボタン
         # =========================
         if st.button("詳細を見る"):
+            st.session_state.training_id = training_id
             st.session_state.page = "training_detail"
             st.rerun()
             
