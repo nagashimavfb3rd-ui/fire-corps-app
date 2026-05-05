@@ -338,8 +338,7 @@ def main():
     meeting_time = training["meeting_time"] or training["start_time"]
     end_time = training["end_time"] or "23:59"
 
-    st.write(training["date"], meeting_time, end_time)
-    
+
     st.markdown("---")
     
     st.download_button(
