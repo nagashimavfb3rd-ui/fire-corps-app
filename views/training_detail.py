@@ -9,13 +9,17 @@ from db import (
     save_hose_count_supabase,
     get_hose_counts_supabase,
     create_training_hose_supabase,
+    get_training_report_supabase,
+    save_training_report_supabase,
     save_incident_supabase,
     get_incident_supabase,
     get_training_target_ids_supabase,
     get_all_trainings_ordered_supabase,
-    get_prev_next_training
+    get_prev_next_training,
+    get_current_leader_supabase
 )
 from utils.ui import set_toast, show_toast
+from utils.pdf import create_training_report_pdf
 import uuid
 from datetime import datetime
 
@@ -616,6 +620,106 @@ def main():
                         set_toast("ホース本数を保存しました", "update")
                         st.rerun()
 
+
+    # =========================
+    # 📝 実績報告入力（超重要）
+    # =========================
+    if is_admin():
+
+        report = get_training_report_supabase(training_id) or {}
+
+        st.markdown("---")
+
+        with st.expander("## 📝 実績報告（市提出用）", expanded=False):
+
+            with st.form("report_form"):
+
+                training_date_obj = datetime.strptime(training["date"], "%Y-%m-%d")
+
+                mt = training.get("meeting_time") or "08:30"
+
+                parts = mt.split(":")
+                h = int(parts[0])
+                m = int(parts[1])
+
+                default_start = training_date_obj.replace(hour=h, minute=m)
+                default_end = training_date_obj.replace(hour=11, minute=0)
+
+                dispatch_start = st.datetime_input(
+                    "出場開始",
+                    value=parse_datetime(report.get("dispatch_start")) or default_start
+                )
+
+                dispatch_end = st.datetime_input(
+                    "出場終了",
+                    value=parse_datetime(report.get("dispatch_end")) or default_end
+                )
+
+                vehicle = st.checkbox(
+                    "消防車出動",
+                    value=bool(report.get("vehicle_dispatched", False))
+                )
+
+                water = st.checkbox(
+                    "放水あり",
+                    value=bool(report.get("water_used", False))
+                )
+
+                reason = st.text_area(
+                    "人員差異理由",
+                    value=report.get("member_diff_reason", "") or ""
+                )
+
+                note = st.text_area(
+                    "備考",
+                    value=report.get("note", "") or ""
+                )
+
+                submitted = st.form_submit_button("保存")
+
+                if submitted:
+                    save_training_report_supabase(training_id, {
+                        "dispatch_start": dispatch_start.isoformat() if dispatch_start else None,
+                        "dispatch_end": dispatch_end.isoformat() if dispatch_end else None,
+                        "vehicle_dispatched": vehicle,
+                        "water_used": water,
+                        "member_diff_reason": reason,
+                        "note": note
+                    })
+                    set_toast("実績報告を保存しました", "update")
+                    st.rerun()
+    
+    # =========================
+    # 📄 PDF出力
+    # =========================
+    if is_admin():
+
+        report = get_training_report_supabase(training_id)
+
+        if report:
+
+            # 実出席者取得
+            members = [
+                u for u in users
+                if attendance_map.get(u["id"], {}).get("actual_status") == "present"
+            ]
+            
+            leader_name = get_current_leader_supabase()
+
+            pdf_data = create_training_report_pdf(
+                training,
+                report,
+                members,
+                leader_name)
+
+            st.download_button(
+                "📄 報告書PDF出力",
+                data=pdf_data,
+                file_name=f"report_{training['date']}.pdf",
+                mime="application/pdf"
+            )
+    
+    
     # =========================
     # 🚨 事故記録フォーム（ホースの下）
     # =========================
