@@ -10,8 +10,10 @@ from db import(
     authenticate_user_supabase,
     
     get_next_training_supabase,
+    get_user_meal_option_supabase,
     get_user_attendance_supabase,
     save_attendance_supabase,
+    save_meal_supabase,
     
     get_user_reward_summary_supabase,
     get_hose_reward_summary_supabase,
@@ -149,6 +151,11 @@ def home_page():
         )
 
         training_id = next_training["id"]
+        event_type = next_training.get("event_type")
+        meal_option = get_user_meal_option_supabase(training_id, user_id)
+
+        st.markdown("---")
+        st.markdown("### 行事出席回答状況")
 
         # =========================
         # 出欠ステータス取得
@@ -178,8 +185,44 @@ def home_page():
                 st.rerun()
 
         # =========================
+        # 🍻 宴会・食事会ステータス
+        # =========================
+        if event_type in ["party", "meal"]:
+
+            st.markdown("### 🍻 宴会・食事会回答状況")
+
+            if meal_option == "join":
+                st.success("🍻 参加")
+            elif meal_option == "bento":
+                st.info("🍱 弁当のみ")
+            elif meal_option == "no":
+                st.error("❌ 不参加")
+            else:
+                st.warning("❔ 未回答")
+
+        col3, col4, col5, col6 = st.columns(4)
+
+        if col3.button("参加", use_container_width=True):
+            save_meal_supabase(training_id, user_id, "join")
+            st.rerun()
+
+        if col4.button("弁当のみ", use_container_width=True):
+            save_meal_supabase(training_id, user_id, "bento")
+            st.rerun()
+
+        if col5.button("不参加", use_container_width=True):
+            save_meal_supabase(training_id, user_id, "no")
+            st.rerun()
+
+        if col6.button("未定", use_container_width=True):
+            save_meal_supabase(training_id, user_id, "none")
+            st.rerun()
+
+        # =========================
         # 残り日数
         # =========================
+        st.markdown("---")
+
         training_date = datetime.strptime(next_training["date"], "%Y-%m-%d")
         days_left = (training_date - datetime.today()).days
 
@@ -193,8 +236,8 @@ def home_page():
             st.session_state.page = "training_detail"
             st.rerun()
             
-        else:
-            st.info("予定されている訓練はありません")
+    else:
+        st.info("予定されている訓練はありません")
 
     # =========================
     # ② 現在年度の報酬

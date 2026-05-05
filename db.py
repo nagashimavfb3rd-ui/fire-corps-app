@@ -793,6 +793,7 @@ def get_trainings_supabase(fiscal_year=None):
     query = supabase.table("trainings")\
         .select("*")\
         .order("date", desc=True)\
+        .order("meeting_time", desc=True, nullsfirst=False)
 
     if fiscal_year:
         query = query.eq("fiscal_year", fiscal_year)
@@ -1072,6 +1073,7 @@ def get_next_training_supabase():
         .select("*")\
         .gte("date", datetime.now().strftime("%Y-%m-%d"))\
         .order("date", desc=False)\
+        .order("meeting_time", desc=False)\
         .limit(1)\
         .execute().data[0] if supabase.table("trainings").select("*").execute().data else None
 
@@ -1085,6 +1087,19 @@ def get_user_attendance_supabase(training_id, user_id):
         .execute()
 
     return res.data["attend_status"] if res.data else None
+
+
+def get_user_meal_option_supabase(training_id, user_id):
+    res = supabase.table("training_attendance")\
+        .select("meal_option")\
+        .eq("training_id", training_id)\
+        .eq("user_id", user_id)\
+        .execute()
+
+    if res.data:
+        return res.data[0].get("meal_option")
+
+    return None
 
 
 def get_current_fiscal_year():
