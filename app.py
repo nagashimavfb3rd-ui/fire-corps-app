@@ -92,11 +92,8 @@ def auto_login():
 
     if not token:
         return False
-
-    try:
-        user = get_user_by_token(token)
-    except Exception:
-        return False
+    
+    user = get_user_by_token(token)
 
     if user:
         st.session_state.user = user
@@ -436,7 +433,8 @@ def main():
     # 毎回自動ログインチェック
     # =========================
     if st.session_state.user is None:
-        auto_login()
+        if auto_login():
+            st.rerun()
 
     # =========================
     # 未ログインならログイン画面
