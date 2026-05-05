@@ -5,6 +5,7 @@ st.set_page_config(
     layout="centered"
 )
 import os
+import uuid
 from db import(
     authenticate_user_supabase,
     
@@ -15,7 +16,11 @@ from db import(
     get_user_reward_summary_supabase,
     get_hose_reward_summary_supabase,
     
-    change_password_supabase
+    change_password_supabase,
+    
+    save_login_token,
+    get_user_by_token,
+    delete_login_token
 )
 from utils.ui import show_toast
 from datetime import datetime
@@ -32,6 +37,15 @@ import views.admin as admin
 import views.my_reward as my_reward
 import views.admin_reward as admin_reward
 
+from streamlit_cookies_manager import EncryptedCookieManager
+
+cookies = EncryptedCookieManager(
+    prefix="shobo_app_",
+    password="a8F!k29sL#pQzX7vN3mR@tY6uW"
+)
+
+if not cookies.ready():
+    st.stop()
 
 # =========================
 # セッション初期化
@@ -42,31 +56,67 @@ if "user" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "login"
 
-
 # =========================
 # ログイン画面
 # =========================
 def login_page():
     st.title("🚒 長島第３分団出欠等管理ログイン")
 
-    login_id = st.text_input("ログインID")
+    # ログインID保存
+    saved_id = cookies.get("saved_login_id", "")
+
+    login_id = st.text_input("ログインID", value=saved_id)
     password = st.text_input("パスワード", type="password")
 
     if st.button("ログイン", use_container_width=True):
         user = authenticate_user_supabase(login_id, password)
 
         if user:
+            token = str(uuid.uuid4())
+            save_login_token(user["id"], token)
+
+            cookies["auth_token"] = token
+            cookies["saved_login_id"] = login_id
+            cookies.save()
+
             st.session_state.user = user
             st.session_state.page = "home"
             st.rerun()
         else:
             st.error("ログイン失敗")
 
+def auto_login():
+    token = cookies.get("auth_token")
+
+    if not token:
+        return False
+
+    try:
+        user = get_user_by_token(token)
+    except Exception:
+        return False
+
+    if user:
+        st.session_state.user = user
+        st.session_state.page = "home"
+        return True
+
+    return False
 
 # =========================
 # ログアウト
 # =========================
 def logout():
+    token = cookies.get("auth_token")
+
+    if token:
+        # DB側のトークン削除
+        delete_login_token(token)
+
+    if "auth_token" in cookies:
+        del cookies["auth_token"]
+    cookies.save()
+
     st.session_state.user = None
     st.session_state.page = "login"
     st.rerun()
@@ -338,6 +388,15 @@ def router():
 def main():
     show_toast()
 
+    # =========================
+    # 毎回自動ログインチェック
+    # =========================
+    if st.session_state.user is None:
+        auto_login()
+
+    # =========================
+    # 未ログインならログイン画面
+    # =========================
     if st.session_state.user is None:
         login_page()
         return

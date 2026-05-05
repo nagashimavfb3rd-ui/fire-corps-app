@@ -19,6 +19,20 @@ pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
 
 
 # =========================
+# フォーマット関数
+# =========================
+def format_jp_datetime(dt_str):
+    if not dt_str:
+        return ""
+
+    try:
+        dt = datetime.fromisoformat(str(dt_str).replace(" ", "T"))
+        return dt.strftime("%Y年%m月%d日 %H時%M分")
+    except:
+        return str(dt_str)
+
+
+# =========================
 # 訓練一覧PDF生成
 # =========================
 def create_training_pdf(trainings, fiscal_year):
@@ -396,4 +410,150 @@ def create_unit_summary_pdf(units, target_date):
 
     buffer.seek(0)
 
+    return buffer
+
+# =========================
+# 出場報告書PDF生成
+# =========================
+def create_training_report_pdf(training, report, members, leader_name):
+
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+
+    styles = getSampleStyleSheet()
+
+    style = ParagraphStyle(
+        "JP",
+        parent=styles["Normal"],
+        fontName="HeiseiKakuGo-W5",
+        fontSize=11,
+        leading=14
+    )
+    
+    title_style = ParagraphStyle(
+       "TitleJP",
+        parent=styles["Normal"],
+        fontName="HeiseiKakuGo-W5",
+        fontSize=16,      # ← 大きくする（14〜18くらいが良い）
+        alignment=1,      # ← 中央揃え（超重要）
+        spaceAfter=12
+    )
+    
+    right_style = ParagraphStyle(
+        "RightJP",
+        parent=styles["Normal"],
+        fontName="HeiseiKakuGo-W5",
+        fontSize=11,
+        alignment=2,   # ← これが右寄せ（重要）
+        spaceAfter=5
+    )
+
+    elements = []
+
+    today = datetime.now().strftime("%Y年%m月%d日")
+
+    elements.append(Paragraph("消防団活動報告書", title_style))
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph(f"{today}", right_style))
+    elements.append(Paragraph("桑名市消防団長　様", style))
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph("長島方面団 第３分団", right_style))
+    elements.append(Paragraph(f"分団長　{leader_name}", right_style))
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph("下記の通り報告します。", title_style))
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph("記", title_style))
+    elements.append(Spacer(1, 10))
+
+    start = format_jp_datetime(report.get("dispatch_start"))
+    end = format_jp_datetime(report.get("dispatch_end"))
+    format_range = f"{start} ～ {end}"
+
+    data = [
+        ["出場理由", training["title"]],
+        ["出場年月日", format_range],
+        ["出場場所", training["location"]],
+        ["消防車", "出動した" if report.get("vehicle_dispatched") else "出動しない"],
+        ["放水", "有" if report.get("water_used") else "無"],
+        ["活動内容", training["title"]],
+        ["人員差異理由", report.get("member_diff_reason") or ""],
+    ]
+    
+    table = Table(data, colWidths=[120, 330])
+    
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "HeiseiKakuGo-W5"),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+
+        # 左列ちょい強調
+        ("BACKGROUND", (0, 0), (0, -1), colors.lightgrey),
+
+        # 枠線
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+
+        # 縦中央
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+
+        # 余白
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    
+    elements.append(table)
+    elements.append(Spacer(1, 15))
+
+    elements.append(Spacer(1, 15))
+
+    elements.append(Paragraph("出 動 者 氏 名", title_style))
+
+    # =========================
+    # 出動者リストを3列テーブル化
+    # =========================
+    rows = []
+    chunk_size = 10  # 1列10人
+    cols = 3
+
+    # 30人分までを想定（10×3）
+    for i in range(chunk_size):
+        row = []
+
+        for j in range(cols):
+            idx = i + j * chunk_size
+
+            if idx < len(members):
+                number = idx + 1
+                name = members[idx]["name"]
+                cell = f"{number}　{name}"
+            else:
+                cell = ""
+
+            row.append(cell)
+
+        rows.append(row)
+
+    # テーブル作成
+    member_table = Table(rows, colWidths=[160, 160, 160])
+
+    member_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "HeiseiKakuGo-W5"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+
+    elements.append(member_table)
+
+    doc.build(elements)
+
+    buffer.seek(0)
     return buffer

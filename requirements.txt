@@ -4,5 +4,7 @@ numpy>=1.24.0
 python-dateutil>=2.8.2
 reportlab>=4.0.0
 openpyxl>=3.1.0
-supabase
-python-dotenv
+
+supabase>=2.0.0
+python-dotenv>=1.0.0
+streamlit-cookies-manager>=0.2.0

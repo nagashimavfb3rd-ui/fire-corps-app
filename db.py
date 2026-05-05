@@ -15,6 +15,29 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def save_login_token(user_id, token):
+    supabase.table("users")\
+        .update({"auth_token": token})\
+        .eq("id", user_id)\
+        .execute()
+
+
+def get_user_by_token(token):
+    res = supabase.table("users")\
+        .select("*")\
+        .eq("auth_token", token)\
+        .execute()
+
+    if res.data:
+        return res.data[0]
+
+    return None
+
+def delete_login_token(token):
+    supabase.table("users").update({
+        "auth_token": None
+    }).eq("auth_token", token).execute()
+
 # =========================
 # Supabase版 users取得
 # =========================
@@ -999,6 +1022,46 @@ def authenticate_user_supabase(login_id, password):
         return user
 
     return None
+
+
+# 実績報告 取得
+def get_training_report_supabase(training_id):
+    res = supabase.table("training_reports") \
+        .select("*") \
+        .eq("training_id", training_id) \
+        .execute()
+
+    if res.data:
+        return res.data[0]
+    return None
+
+
+# 実績報告 保存（UPSERT）
+def save_training_report_supabase(training_id, data):
+    payload = {
+        "training_id": training_id,
+        **data
+    }
+
+    supabase.table("training_reports") \
+        .upsert(payload, on_conflict="training_id") \
+        .execute()
+
+
+# 現在の分団長取得
+def get_current_leader_supabase():
+
+    res = supabase.table("role_history") \
+        .select("user_id, role, end_date, users(name)") \
+        .eq("role", "分団長") \
+        .is_("end_date", None) \
+        .limit(1) \
+        .execute()
+
+    if res.data:
+        return res.data[0]["users"]["name"]
+
+    return "（未設定）"
 
 
 # =========================
