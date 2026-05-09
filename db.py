@@ -1083,10 +1083,12 @@ def get_user_attendance_supabase(training_id, user_id):
         .select("attend_status")\
         .eq("training_id", training_id)\
         .eq("user_id", user_id)\
-        .single()\
         .execute()
 
-    return res.data["attend_status"] if res.data else None
+    if res.data:
+        return res.data[0]["attend_status"]
+
+    return None
 
 
 def get_user_meal_option_supabase(training_id, user_id):

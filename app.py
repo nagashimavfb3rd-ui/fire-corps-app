@@ -142,9 +142,26 @@ def home_page():
     st.markdown("## 🚒 次回訓練")
 
     if next_training:
+        meeting_time = next_training.get("meeting_time") or "未設定"
+        event_type = next_training.get("event_type")
+
+        # 行事表示用
+        event_text = ""
+
+        if event_type in ["party", "宴会"]:
+            event_text = "🍻 宴会あり"
+
+        elif event_type in ["meal", "食事会"]:
+            event_text = "🍱 食事会あり"
+
+        else:
+            event_text = "🚒 食事等なし"
+
         st.success(
             f"{next_training['date']}｜{next_training['title']}\n\n"
-            f"📍 {next_training['location']}"
+            f"⏰ 集合：{meeting_time}\n\n"
+            f"📍 {next_training['location']}\n\n"
+            f"{event_text}"
         )
 
         training_id = next_training["id"]

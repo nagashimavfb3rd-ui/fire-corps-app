@@ -46,7 +46,7 @@ def training_card(training, incident_map):
     EVENT_TYPE_LABELS = {
        "none": "なし",
        "meal": "食事あり",
-       "drinking": "懇親会",
+       "party": "宴会",
     }
     
     st.markdown("---")
