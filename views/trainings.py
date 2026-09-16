@@ -39,7 +39,6 @@ def build_target_label(training):
 def training_card(training, incident_map):
     present, absent = get_attendance_count_supabase(training["id"])
 
-    total = present + absent
     required = training["required_members"] or 0
     shortage_flag = present < required
 
@@ -49,7 +48,7 @@ def training_card(training, incident_map):
        "party": "宴会",
     }
     
-    st.markdown("---")
+    st.divider()
 
     incident_flag = incident_map.get(training["id"], 0)
     
@@ -58,10 +57,11 @@ def training_card(training, incident_map):
     if incident_flag:
         title += " 🚨事故あり"
     
-    st.subheader(title)
-    st.write(f"⏰ 集合時間：{training['meeting_time']}")
     event_label = EVENT_TYPE_LABELS.get(training["event_type"], "未設定")
-    st.write(f"🍱 食事：{event_label}") 
+    st.markdown(f"**{title}**")
+    st.caption(
+        f"⏰ 集合時間：{training['meeting_time']}　｜　🍱 食事：{event_label}"
+    )
     
     # 🎯 参加対象表示
     target_roles = training["target_roles"]
@@ -84,33 +84,26 @@ def training_card(training, incident_map):
 
     # 表示ロジック
     if target_roles:
-        st.write(f"🎯 対象役職：{target_roles}")
+        st.caption(f"🎯 対象役職：{target_roles}")
 
     elif individual_ids:
         names = [u["name"] for u in target_users]
 
         if names:
-            st.write("🎯 個別対象者：" + "、".join(names))
+            st.caption("🎯 個別対象者：" + "、".join(names))
         else:
-            st.write("🎯 個別対象者：なし")
+            st.caption("🎯 個別対象者：なし")
 
     else:
-        st.write("🎯 全員対象")
+        st.caption("🎯 全員対象")
 
     # 出欠
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("出席", present)
-
-    with col2:
-        st.metric("欠席", absent)
-
-    with col3:
-        if shortage_flag:
-            st.error(f"⚠ 人数不足（必要：{required}人）")
-        else:
-            st.success("OK")
+    attendance_summary = f"出席：{present}人　｜　欠席：{absent}人"
+    if shortage_flag:
+        attendance_summary += f"　｜　⚠ 人数不足（必要：{required}人）"
+    else:
+        attendance_summary += "　｜　✅ OK"
+    st.caption(attendance_summary)
 
     if st.button("詳細を見る", key=f"detail_{training['id']}"):
         st.session_state.training_id = training["id"]
