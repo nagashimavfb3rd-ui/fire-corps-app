@@ -58,7 +58,11 @@ def training_card(training, incident_map):
         title += " 🚨事故あり"
     
     event_label = EVENT_TYPE_LABELS.get(training["event_type"], "未設定")
-    st.markdown(f"**{title}**")
+    if st.button(title, key=f"detail_{training['id']}", use_container_width=True):
+        st.session_state.training_id = training["id"]
+        st.session_state.page = "training_detail"
+        st.rerun()
+
     st.caption(
         f"⏰ 集合時間：{training['meeting_time']}　｜　🍱 食事：{event_label}"
     )
@@ -104,12 +108,6 @@ def training_card(training, incident_map):
     else:
         attendance_summary += "　｜　✅ OK"
     st.caption(attendance_summary)
-
-    if st.button("詳細を見る", key=f"detail_{training['id']}"):
-        st.session_state.training_id = training["id"]
-        st.session_state.page = "training_detail"
-        st.rerun()
-
 
 # =========================
 # メイン画面
