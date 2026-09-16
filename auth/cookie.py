@@ -19,17 +19,12 @@ def get_token(cookie_manager):
 
 
 def save_token(cookie_manager, token):
-    print("Cookie保存開始")
-    print("token:", token)
-
     result = cookie_manager.set(
         COOKIE_NAME,
         token,
         expires_at=datetime.now() + timedelta(days=90),
         path="/"
     )
-
-    print("Cookie保存完了")
 
     return result
 
