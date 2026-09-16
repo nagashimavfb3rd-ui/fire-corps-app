@@ -194,7 +194,7 @@ def user_card(user, training_id, planned_status, actual_status, meal_option, eve
             st.rerun()
 
         if col6.button(
-            "弁当のみ",
+            "弁当",
             key=f"meal_bento_{user['id']}_{training_id}",
             disabled=not can_edit
         ):
@@ -303,13 +303,13 @@ def main():
         else:
             st.success("👥 全員対象")
 
-    st.write(f"📅 日付：{training['date']}")
-    st.write(f"⏰ 時間：{training['start_time']} ～ {training['end_time']}")
-    st.write(f"📍 場所：{training['location']}")
-
-    st.write(f"🚗 集合：{training['meeting_point']}（{training['meeting_time']}）")
-    st.write(f"👕 服装：{training['uniform']}")
-    st.write(f"💰 手当：{training['reward_amount']} 円")
+    st.caption(
+        f"📅 日付：{training['date']}　｜　⏰ 時間：{training['start_time']} ～ {training['end_time']}"
+    )
+    st.caption(
+        f"📍 場所：{training['location']}　｜　🚗 集合：{training['meeting_point']}（{training['meeting_time']}）"
+    )
+    st.caption(f"👕 服装：{training['uniform']}　｜　💰 手当：{training['reward_amount']} 円")
     
     event_type = training["event_type"]
     
@@ -320,8 +320,8 @@ def main():
     else:
         st.caption("🚒 宴会・食事会なし")
 
-    st.write(f"📌 ステータス：{training['status']}")
-    st.write(f"📝 備考：{training['note'] or 'なし'}")
+    st.caption(f"📌 ステータス：{training['status']}")
+    st.caption(f"📝 備考：{training['note'] or 'なし'}")
 
     # =========================
     # 📅 カレンダー登録ボタン
@@ -400,10 +400,8 @@ def main():
     if prev_id is None and next_id is None:
         st.caption("前後の訓練はありません")
 
-    col1, col2, col3 = st.columns([1,2,1])
-
-    with col2:
-        st.caption("訓練を切り替え")
+    st.caption("訓練を切り替え")
+    col1, col2 = st.columns(2)
 
     with col1:
         if prev_id:
@@ -411,7 +409,7 @@ def main():
                 st.session_state.training_id = prev_id
                 st.rerun()
 
-    with col3:
+    with col2:
         if next_id:
             if st.button("次 →", key="next_btn", use_container_width=True):
                 st.session_state.training_id = next_id
@@ -542,14 +540,15 @@ def main():
     # 管理者：一括操作
     if is_admin():
         st.markdown("---")
-        mode = st.radio(
-            "一括更新モード",
-            ["planned", "actual"],
-            format_func=lambda x: "出席予定" if x == "planned" else "実出席",
-            horizontal=True
-        )
+        with st.expander("⚡ 役員用一括更新", expanded=False):
+            mode = st.radio(
+                "一括更新モード",
+                ["planned", "actual"],
+                format_func=lambda x: "出席予定" if x == "planned" else "実出席",
+                horizontal=True
+            )
 
-        bulk_attendance(users, training_id, mode=mode)
+            bulk_attendance(users, training_id, mode=mode)
 
 
     # =========================
