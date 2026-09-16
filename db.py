@@ -792,8 +792,8 @@ def get_prev_next_training(training_id):
 def get_trainings_supabase(fiscal_year=None):
     query = supabase.table("trainings")\
         .select("*")\
-        .order("date", desc=True)\
-        .order("meeting_time", desc=True, nullsfirst=False)
+        .order("date")\
+        .order("meeting_time", nullsfirst=False)
 
     if fiscal_year:
         query = query.eq("fiscal_year", fiscal_year)
