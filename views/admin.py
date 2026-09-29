@@ -156,7 +156,19 @@ def training_admin_panel():
     st.markdown("---")
     st.subheader("📋 訓練一覧")
 
+    show_past = st.checkbox(
+        "過去の訓練を表示する",
+        value=False
+    )
+
     trainings = get_trainings_supabase()
+
+    if not show_past:
+        today = datetime.today().date()
+        trainings = [
+            t for t in trainings
+            if datetime.strptime(t["date"], "%Y-%m-%d").date() >= today
+        ]
 
     for t in trainings:
         st.markdown("---")
@@ -284,7 +296,7 @@ def training_admin_panel():
             if names:
                 st.write("👤 対象者:", ", ".join(names))
                 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = st.columns(3, wrap=False)
                 
             if col1.button("コピー", key=f"copy_{t['id']}"):
                 copy_training_supabase(t)
@@ -382,53 +394,52 @@ def user_admin_panel():
     users = get_users()
 
     for u in users:
-        st.markdown("---")
-        st.write(f"👤 {u['name']}")
+        with st.expander(f"👤 {u['name']}"):
 
-        col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
 
-        with col1:
-            new_auth = st.selectbox(
-                "アプリ管理権限",
-                ["user", "admin"],
-                index=0 if u["auth_role"] == "user" else 1,
-                key=f"auth_{u['id']}"
-            )
-
-        with col2:
-            new_role = st.selectbox(
-                "役職",
-                ["団員", "副分団長", "分団長"],
-                index=["団員", "副分団長", "分団長"].index(u["role"]) if u["role"] in ["団員","副分団長","分団長"] else 0,
-                key=f"role_select_{u['id']}"
-            )
-        
-        change_date = st.date_input(
-            "交代日",
-            value=datetime.today(),
-            key=f"date_{u['id']}"
-        )
-
-        if st.button("更新", key=f"update_user_{u['id']}", use_container_width=True):
-            
-            try:
-                # 権限はそのまま更新
-                update_user_role_supabase(u["id"], new_auth)        
-                
-                # 役職は専用関数で処理
-                update_role_with_history_supabase(
-                    u["id"],
-                    new_role,
-                    str(change_date)
+            with col1:
+                new_auth = st.selectbox(
+                    "アプリ管理権限",
+                    ["user", "admin"],
+                    index=0 if u["auth_role"] == "user" else 1,
+                    key=f"auth_{u['id']}"
                 )
+
+            with col2:
+                new_role = st.selectbox(
+                    "役職",
+                    ["団員", "副分団長", "分団長"],
+                    index=["団員", "副分団長", "分団長"].index(u["role"]) if u["role"] in ["団員", "副分団長", "分団長"] else 0,
+                    key=f"role_select_{u['id']}"
+                )
+
+            change_date = st.date_input(
+                "交代日",
+                value=datetime.today(),
+                key=f"date_{u['id']}"
+            )
+
+            if st.button("更新", key=f"update_user_{u['id']}", use_container_width=True):
                 
-                # ★トースト表示用にセット
-                set_toast(f"{u['name']}：{u['role']} → {new_role}", "update")
-                st.rerun()
-            
-            except Exception as e:
-                set_toast(f"更新失敗: {e}", "error")
-                st.rerun()
+                try:
+                    # 権限はそのまま更新
+                    update_user_role_supabase(u["id"], new_auth)
+
+                    # 役職は専用関数で処理
+                    update_role_with_history_supabase(
+                        u["id"],
+                        new_role,
+                        str(change_date)
+                    )
+
+                    # ★トースト表示用にセット
+                    set_toast(f"{u['name']}：{u['role']} → {new_role}", "update")
+                    st.rerun()
+                
+                except Exception as e:
+                    set_toast(f"更新失敗: {e}", "error")
+                    st.rerun()
 
 
 # =========================
@@ -441,68 +452,69 @@ def unit_admin_panel():
     units = get_units_supabase()
 
     for u in units:
-        st.markdown("---")
 
-        new_name = st.text_input(
-            "自治会名",
-            value=u["name"],
-            key=f"unit_{u['id']}"
-        )
-        
-        required_members = st.number_input(
-            "必要人数",
-            value=u["required_members"] or 0,
-            key=f"req_{u['id']}"
-        )
+        with st.expander(f"🏘 {u['name']}"):
 
-        leader_name = st.text_input(
-            "自治会長名",
-            value=u["leader_name"] or "",
-            key=f"leader_{u['id']}"
-        )
-        
-        leader_phone = st.text_input(
-            "電話",
-            value=u["leader_phone"] or "",
-            key=f"phone_{u['id']}"
-        )
-        
-        leader_term = st.number_input(
-            "任期",
-            value=u["leader_term"] or 0,
-            key=f"term_{u['id']}"
-        )
-        
-        leader_start_date = st.date_input(
-            "就任日",
-            value=datetime.strptime(u["leader_start_date"], "%Y-%m-%d") if u["leader_start_date"] else None,
-            key=f"start_{u['id']}"
-        )
-        
-        col1, col2 = st.columns(2)
+            new_name = st.text_input(
+                "自治会名",
+                value=u["name"],
+                key=f"unit_{u['id']}"
+            )
 
-        # 更新
-        if col1.button("更新", key=f"update_unit_{u['id']}"):
-            update_unit_supabase(u["id"], {
-                "name": new_name,
-                "required_members": required_members,
-                "leader_name": leader_name,
-                "leader_phone": leader_phone,
-                "leader_term": leader_term,
-                "leader_start_date": str(leader_start_date) if leader_start_date else None
-            })
-            set_toast("自治会を更新しました", "update")
-            st.rerun()
+            required_members = st.number_input(
+                "必要人数",
+                value=u["required_members"] or 0,
+                key=f"req_{u['id']}"
+            )
 
-        # 削除
-        if col2.button("削除", key=f"delete_unit_{u['id']}"):
-            try:
-                delete_unit_supabase(u["id"])
-                set_toast("自治会を削除しました", "delete")
+            leader_name = st.text_input(
+                "自治会長名",
+                value=u["leader_name"] or "",
+                key=f"leader_{u['id']}"
+            )
+
+            leader_phone = st.text_input(
+                "電話",
+                value=u["leader_phone"] or "",
+                key=f"phone_{u['id']}"
+            )
+
+            leader_term = st.number_input(
+                "任期",
+                value=u["leader_term"] or 0,
+                key=f"term_{u['id']}"
+            )
+
+            leader_start_date = st.date_input(
+                "就任日",
+                value=datetime.strptime(u["leader_start_date"], "%Y-%m-%d") if u["leader_start_date"] else None,
+                key=f"start_{u['id']}"
+            )
+
+            col1, col2 = st.columns(2)
+
+            # 更新
+            if col1.button("更新", key=f"update_unit_{u['id']}"):
+                update_unit_supabase(u["id"], {
+                    "name": new_name,
+                    "required_members": required_members,
+                    "leader_name": leader_name,
+                    "leader_phone": leader_phone,
+                    "leader_term": leader_term,
+                    "leader_start_date": str(leader_start_date) if leader_start_date else None
+                })
+                set_toast("自治会を更新しました", "update")
                 st.rerun()
-            except Exception as e:
-                st.warning(str(e))
-                st.rerun()
+
+            # 削除
+            if col2.button("削除", key=f"delete_unit_{u['id']}"):
+                try:
+                    delete_unit_supabase(u["id"])
+                    set_toast("自治会を削除しました", "delete")
+                    st.rerun()
+                except Exception as e:
+                    st.warning(str(e))
+                    st.rerun()
 
     # 追加画面
     st.markdown("---")
@@ -611,7 +623,7 @@ def role_history_panel():
             end = h['end_date'] if h['end_date'] else "現在"
             st.write(f"🎖 {h['role']}　📅 {h['start_date']} 〜 {end}")
 
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2, wrap=False)
 
             # 編集ボタン
             if col1.button("編集", key=f"edit_hist_{h['id']}"):

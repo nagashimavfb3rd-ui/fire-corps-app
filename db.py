@@ -689,11 +689,30 @@ def update_training_supabase(training_id, data):
 
 def delete_training_supabase(training_id):
 
+    # ホース片付け記録を削除
+    hose_rows = supabase.table("training_hose") \
+        .select("id") \
+        .eq("training_id", training_id) \
+        .execute().data
+
+    for hose in hose_rows:
+        supabase.table("training_hose_members") \
+            .delete() \
+            .eq("hose_id", hose["id"]) \
+            .execute()
+
+    supabase.table("training_hose") \
+        .delete() \
+        .eq("training_id", training_id) \
+        .execute()
+
+    # 訓練対象者を削除
     supabase.table("training_targets") \
         .delete() \
         .eq("training_id", training_id) \
         .execute()
 
+    # 訓練本体を削除
     supabase.table("trainings") \
         .delete() \
         .eq("id", training_id) \
