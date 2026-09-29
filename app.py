@@ -174,32 +174,38 @@ def home_page():
         meal_option = get_user_meal_option_supabase(training_id, user_id)
 
         st.markdown("---")
-        st.markdown("### 行事出席回答状況")
+        st.markdown("### 次回行事出欠回答状況")
 
         # =========================
         # 出欠ステータス取得
         # =========================
         status = get_user_attendance_supabase(training_id, user_id)
 
-        if status == "present":
-            st.success("✅ 出席予定")
-        elif status == "absent":
-            st.error("❌ 欠席予定")
-        else:
-            st.warning("⚠️ 未回答")
+        if status is None:
+            st.warning("⚠️ 訓練の出欠を回答してください")
 
         # =========================
         # 出欠ボタン
         # =========================
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2, wrap=False)
 
         with col1:
-            if st.button("出席", use_container_width=True):
+            if st.button(
+                "🟢 出席 ✓" if status == "present" else "🟢 出席",
+                key=f"home_present_{training_id}",
+                width="stretch",
+                type="primary" if status == "present" else "secondary"
+            ):
                 save_attendance_supabase(training_id, user_id, "present")
                 st.rerun()
 
         with col2:
-            if st.button("欠席", use_container_width=True):
+            if st.button(
+                "🔴 欠席 ✓" if status == "absent" else "🔴 欠席",
+                key=f"home_absent_{training_id}",
+                width="stretch",
+                type="primary" if status == "absent" else "secondary"
+            ):
                 save_attendance_supabase(training_id, user_id, "absent")
                 st.rerun()
 
@@ -208,35 +214,52 @@ def home_page():
         # =========================
         if event_type in ["party", "meal"]:
 
-            st.markdown("### 🍻 宴会・食事会回答状況")
+            if event_type == "party":
+                st.markdown("### 🍻 宴会の出欠")
+            elif event_type == "meal":
+                st.markdown("### 🍱 食事会の出欠")
 
-            if meal_option == "join":
-                st.success("🍻 参加")
-            elif meal_option == "bento":
-                st.info("🍱 弁当のみ")
-            elif meal_option == "no":
-                st.error("❌ 不参加")
-            else:
-                st.warning("❔ 未回答")
+            if not meal_option:
+                st.warning("⚠️ 参加方法を選択してください")
 
-        col3, col4, col5, col6 = st.columns(4)
+            col3, col4 = st.columns(2, wrap=False)
+            col5, col6 = st.columns(2, wrap=False)
 
-        if col3.button("参加", use_container_width=True):
-            save_meal_supabase(training_id, user_id, "join")
-            st.rerun()
+            if col3.button(
+                "🍻 参加 ✓" if meal_option == "join" else "🍻 参加",
+                key=f"home_meal_join_{training_id}",
+                width="stretch",
+                type="primary" if meal_option == "join" else "secondary"
+            ):
+                save_meal_supabase(training_id, user_id, "join")
+                st.rerun()
 
-        if col4.button("弁当のみ", use_container_width=True):
-            save_meal_supabase(training_id, user_id, "bento")
-            st.rerun()
+            if col4.button(
+                "🍱 弁当のみ ✓" if meal_option == "bento" else "🍱 弁当のみ",
+                key=f"home_meal_bento_{training_id}",
+                width="stretch",
+                type="primary" if meal_option == "bento" else "secondary"
+            ):
+                save_meal_supabase(training_id, user_id, "bento")
+                st.rerun()
 
-        if col5.button("不参加", use_container_width=True):
-            save_meal_supabase(training_id, user_id, "no")
-            st.rerun()
+            if col5.button(
+                "❌ 不参加 ✓" if meal_option == "no" else "❌ 不参加",
+                key=f"home_meal_no_{training_id}",
+                width="stretch",
+                type="primary" if meal_option == "no" else "secondary"
+            ):
+                save_meal_supabase(training_id, user_id, "no")
+                st.rerun()
 
-        if col6.button("未定", use_container_width=True):
-            save_meal_supabase(training_id, user_id, "none")
-            st.rerun()
-
+            if col6.button(
+                "？ 未定 ✓" if meal_option == "none" else "？ 未定",
+                key=f"home_meal_none_{training_id}",
+                width="stretch",
+                type="primary" if meal_option == "none" else "secondary"
+            ):
+                save_meal_supabase(training_id, user_id, "none")
+                st.rerun()
         # =========================
         # 残り日数
         # =========================
@@ -270,7 +293,7 @@ def home_page():
     st.markdown("---")
     st.markdown("## 💰 今年度の報酬")
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, wrap=False)
 
     with col1:
         st.metric("実績", f"{data['actual_total']:,}円")
@@ -285,15 +308,15 @@ def home_page():
     # =========================
     st.markdown("---")
 
-    col3, col4 = st.columns(2)
+    col3, col4 = st.columns(2, wrap=False)
 
     with col3:
         total_actual = data["actual_total"] + hose_reward
-        st.metric("実績合計", f"{total_actual:,}円")
+        st.metric("実績（ホース込）", f"{total_actual:,}円")
 
     with col4:
         total_estimated = data["estimated_total"] + hose_reward
-        st.metric("見込合計", f"{total_estimated:,}円")
+        st.metric("見込（ホース込）", f"{total_estimated:,}円")
 
     st.markdown("---")
 

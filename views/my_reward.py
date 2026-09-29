@@ -142,6 +142,11 @@ def main():
     else:
         table_data = []
 
+        records = sorted(
+            records,
+            key=lambda r: r["date"],
+        )
+
         for r in records:
             # 表示用に日本語変換
             status_label = "出席" if r["status"] == "present" else "欠席"

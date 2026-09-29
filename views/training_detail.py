@@ -603,6 +603,8 @@ def main():
     # =========================
     if is_admin():
         st.markdown("---")
+        st.markdown("### 🔐 以下管理者メニュー")
+
 
         with st.expander("訓練出欠の一括更新モード", expanded=False):
             mode = st.radio(
@@ -623,7 +625,6 @@ def main():
         st.session_state.hose_parent_id = create_training_hose_supabase(training_id, 0)
 
     if is_admin():
-        st.markdown("---")
         with st.expander("## 🚒 ホース片付け記録", expanded=False):
             st.info("各団員の片付け本数を入力してください")
 
@@ -665,8 +666,6 @@ def main():
     if is_admin():
 
         report = get_training_report_supabase(training_id) or {}
-
-        st.markdown("---")
 
         with st.expander("## 📝 実績報告（市提出用）", expanded=False):
 
@@ -763,8 +762,6 @@ def main():
     # =========================
     if is_admin():
         
-        st.markdown("---")
-
         incident = dict(get_incident_supabase(training_id) or {})
         
         with st.expander("## 🚨 訓練時事故記録", expanded=False):
