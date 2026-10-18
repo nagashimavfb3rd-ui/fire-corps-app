@@ -1,0 +1,84 @@
+/* ホーム画面のメニュー全体 */
+.st-key-home_menu {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* 4つのボタンを横1列に配置 */
+.st-key-home_menu [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 0.2rem !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* 各列の幅を均等にする */
+.st-key-home_menu .stColumn {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+}
+
+/* メニューボタン */
+.st-key-home_menu div[data-testid="stButton"] > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 90px;
+    padding: 0.4rem 0.1rem;
+    white-space: pre-wrap;
+    line-height: 1.5;
+    box-sizing: border-box;
+
+    /* Streamlit標準の配色を活かす */
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* マウスを乗せたとき */
+.st-key-home_menu div[data-testid="stButton"] > button:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 3px 7px rgba(0, 0, 0, 0.16);
+}
+
+/* ボタンを押したとき */
+.st-key-home_menu div[data-testid="stButton"] > button:active {
+    box-shadow: none;
+    transform: translateY(1px);
+}
+
+/* キーボード操作時のフォーカス */
+.st-key-home_menu div[data-testid="stButton"] > button:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* ホーム画面：宴会・食事会の出欠ボタン */
+.st-key-home_meal_buttons {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* 4つのボタンを横一列に配置 */
+.st-key-home_meal_buttons [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 0.2rem !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* 各列の幅を均等にする */
+.st-key-home_meal_buttons .stColumn {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+}
+
+/* 宴会・食事会ボタン：画面幅に合わせて文字サイズを調整 */
+.st-key-home_meal_buttons div[data-testid="stButton"] > button {
+    min-width: 0 !important;
+    padding: 0.4rem 0.05rem !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    font-size: clamp(0.65rem, 2.5vw, 0.85rem) !important;
+    line-height: 1.4 !important;
+}
