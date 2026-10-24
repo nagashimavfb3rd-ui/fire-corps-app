@@ -1,25 +1,27 @@
-/* ホーム画面のメニュー全体 */
+
+/* =====================================
+   1. ホーム画面：メインメニュー
+   ===================================== */
+
 .st-key-home_menu {
     width: 100% !important;
     min-width: 0 !important;
 }
 
-/* 4つのボタンを横1列に配置 */
 .st-key-home_menu [data-testid="stHorizontalBlock"] {
+    display: flex;
     flex-wrap: nowrap !important;
     gap: 0.2rem !important;
     width: 100% !important;
     min-width: 0 !important;
 }
 
-/* 各列の幅を均等にする */
 .st-key-home_menu .stColumn {
     flex: 1 1 0% !important;
     min-width: 0 !important;
     padding: 0 !important;
 }
 
-/* メニューボタン */
 .st-key-home_menu div[data-testid="stButton"] > button {
     width: 100%;
     min-width: 0;
@@ -28,52 +30,49 @@
     white-space: pre-wrap;
     line-height: 1.5;
     box-sizing: border-box;
-
-    /* Streamlit標準の配色を活かす */
     border-radius: 8px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-/* マウスを乗せたとき */
 .st-key-home_menu div[data-testid="stButton"] > button:hover {
     border-color: var(--primary-color);
     box-shadow: 0 3px 7px rgba(0, 0, 0, 0.16);
 }
 
-/* ボタンを押したとき */
 .st-key-home_menu div[data-testid="stButton"] > button:active {
     box-shadow: none;
     transform: translateY(1px);
 }
 
-/* キーボード操作時のフォーカス */
 .st-key-home_menu div[data-testid="stButton"] > button:focus-visible {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
 }
 
-/* ホーム画面：宴会・食事会の出欠ボタン */
+
+/* =====================================
+   2. ホーム画面：宴会・食事会の出欠ボタン
+   ===================================== */
+
 .st-key-home_meal_buttons {
     width: 100% !important;
     min-width: 0 !important;
 }
 
-/* 4つのボタンを横一列に配置 */
 .st-key-home_meal_buttons [data-testid="stHorizontalBlock"] {
+    display: flex;
     flex-wrap: nowrap !important;
     gap: 0.2rem !important;
     width: 100% !important;
     min-width: 0 !important;
 }
 
-/* 各列の幅を均等にする */
 .st-key-home_meal_buttons .stColumn {
     flex: 1 1 0% !important;
     min-width: 0 !important;
     padding: 0 !important;
 }
 
-/* 宴会・食事会ボタン：画面幅に合わせて文字サイズを調整 */
 .st-key-home_meal_buttons div[data-testid="stButton"] > button {
     min-width: 0 !important;
     padding: 0.4rem 0.05rem !important;
@@ -81,4 +80,240 @@
     overflow-wrap: anywhere;
     font-size: clamp(0.65rem, 2.5vw, 0.85rem) !important;
     line-height: 1.4 !important;
+}
+
+
+/* =====================================
+   3. 訓練一覧：カード全体・基本レイアウト
+   ===================================== */
+
+/* 横並び要素の不要なクリッピングを防ぐ */
+[class*="st-key-training_card_"] [data-testid="stHorizontalBlock"] {
+    overflow: visible !important;
+}
+
+/* カレンダー列の幅を確保 */
+[class*="st-key-training_card_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    min-width: 64px !important;
+}
+
+/* カード内の要素間隔 */
+[class*="st-key-training_card_"] [data-testid="stVerticalBlock"] {
+    gap: 0.1rem !important;
+}
+
+/* 訓練名ボタンを太字にする */
+[class*="st-key-training_card_"] div[data-testid="stButton"] > button,
+[class*="st-key-training_card_"] div[data-testid="stButton"] > button p {
+    font-weight: 700 !important;
+}
+
+/* 訓練名ボタンの下に余白を設ける */
+[class*="st-key-training_card_"] div[data-testid="stButton"] {
+    margin-bottom: 0.2rem !important;
+}
+
+/* 補足情報の行間と余白 */
+[class*="st-key-training_card_"] [data-testid="stCaptionContainer"] {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    line-height: 1.2 !important;
+}
+
+
+/* =====================================
+   4. 訓練一覧：集合時間・集合場所
+   ===================================== */
+
+/* 1行表示し、入りきらない部分を省略 */
+.training-meeting-info {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+    min-height: 1.4em;
+    margin: 0.2rem 0 0.8rem;
+    font-size: 0.875rem;
+    color: var(--text-color);
+}
+
+
+/* 集合時間・集合場所 */
+.training-meeting-info {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+    margin: 0 0 0.35rem;
+    font-size: 0.875rem;
+    color: var(--text-color);
+}
+
+/* 参加人数・出欠状況を同じ行に配置 */
+.training-meeting-info {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+    min-height: 1.4em;
+    margin: 0.2rem 0 0.6rem;
+    font-size: 0.875rem;
+    color: var(--text-color);
+}
+
+/* 参加人数 */
+.training-attendance-count {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.8rem;
+    color: var(--text-color);
+}
+
+/* 自分の出欠状況 */
+.training-attendance-status {
+    flex: 0 0 auto;
+    display: inline-block;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    color: #ffffff;
+    font-size: 0.65rem;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+
+/* =====================================
+   5. 訓練一覧：訓練名・イベントバッジ
+   ===================================== */
+
+/* 訓練名とイベントバッジの横並び */
+[class*="st-key-training_title_row_"] [data-testid="stHorizontalBlock"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    gap: 0.3rem !important;
+    overflow: visible !important;
+}
+
+/* 訓練名側は残りの幅を使用 */
+[class*="st-key-training_title_row_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    flex: 1 1 0% !important;
+    width: 0 !important;
+    min-width: 0 !important;
+}
+
+/* イベントバッジ側は必要な幅を確保 */
+[class*="st-key-training_title_row_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+/* イベントバッジを小さくする */
+[class*="st-key-training_title_row_"] .stMarkdownBadge {
+    font-size: 0.65rem !important;
+    padding: 0.1rem 0.3rem !important;
+    line-height: 1.2 !important;
+}
+
+
+/* =====================================
+   6. 訓練一覧：参加人数・出欠バッジ
+   ===================================== */
+
+/* 参加人数と出欠バッジの横並び */
+[class*="st-key-attendance_row_"] [data-testid="stHorizontalBlock"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    gap: 0.4rem !important;
+    overflow: visible !important;
+}
+
+/* 参加人数側は残りの幅を使用 */
+[class*="st-key-attendance_row_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    flex: 1 1 0% !important;
+    width: 0 !important;
+    min-width: 0 !important;
+}
+
+/* 出欠バッジ側の幅と位置 */
+[class*="st-key-attendance_row_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    align-self: flex-start !important;
+    margin-top: 0 !important;
+}
+
+/* 出欠バッジの文字サイズ */
+[class*="st-key-attendance_row_"] [data-testid="stMarkdownContainer"] span {
+    font-size: 0.65rem !important;
+}
+
+.training-attendance-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    margin: 0 0 0.3rem;
+    padding: 0;
+    line-height: 1.4;
+}
+
+/* =====================================
+   7. 訓練一覧：カレンダー風の日付表示
+   ===================================== */
+
+/* カレンダー全体 */
+.training-calendar {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #777777;
+    border-radius: 6px;
+    overflow: hidden;
+    text-align: center;
+}
+
+/* 月：赤い帯 */
+.training-calendar-month {
+    background-color: #c62828;
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.4;
+    padding: 3px 1px;
+    border-bottom: 1px solid #777777;
+}
+
+/* 日付：中央に大きく */
+.training-calendar-day {
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1.15;
+    padding: 2px 0 0;
+    color: var(--text-color);
+}
+
+/* 曜日：日付のすぐ下 */
+.training-calendar-weekday {
+    font-size: 0.7rem;
+    line-height: 1.3;
+    padding: 0 1px 3px;
+    color: var(--text-color);
 }
