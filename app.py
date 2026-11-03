@@ -18,6 +18,12 @@ from db import(
     save_attendance_supabase,
     save_meal_supabase,
     
+    get_trainings_supabase,
+    get_active_users_supabase,
+    get_training_target_ids_supabase,
+    get_target_users_frontend,
+    get_incidents_map_supabase,
+
     get_user_reward_summary_supabase,
     get_hose_reward_summary_supabase,
     
@@ -43,6 +49,7 @@ from datetime import datetime
 
 # 各ページ読み込み
 import views.trainings as trainings
+from views.trainings import training_card
 import views.training_detail as training_detail
 import views.members as members
 import views.member_detail as member_detail
@@ -177,29 +184,34 @@ def home_page():
     # =========================
     next_training = get_next_training_supabase()
     
-    st.markdown("## 🚒 次回訓練")
+    if next_training:
+        training_date = datetime.strptime(
+            next_training["date"], "%Y-%m-%d"
+        ).date()
+        days_left = (training_date - datetime.today().date()).days
+
+        with st.container(key="home_next_training_heading"):
+            title_col, badge_col = st.columns(
+                [4, 1],
+                vertical_alignment="center",
+                gap="small",
+                wrap=False,
+            )
+
+            with title_col:
+                st.markdown("## 🚒 次回訓練")
+
+            with badge_col:
+                st.badge(f"あと {days_left} 日", color="green")
+
+    else:
+        st.markdown("## 🚒 次回訓練")
 
     if next_training:
-        meeting_time = next_training.get("meeting_time") or "未設定"
-        event_type = next_training.get("event_type")
-
-        # 行事表示用
-        event_text = ""
-
-        if event_type in ["party", "宴会"]:
-            event_text = "🍻 宴会あり"
-
-        elif event_type in ["meal", "食事会"]:
-            event_text = "🍱 食事会あり"
-
-        else:
-            event_text = "🚒 食事等なし"
-
-        st.success(
-            f"{next_training['date']}｜{next_training['title']}\n\n"
-            f"⏰ 集合：{meeting_time}\n\n"
-            f"📍 {next_training['location']}\n\n"
-            f"{event_text}"
+        training_card(
+            next_training,
+            get_incidents_map_supabase(),
+            key_prefix="training",
         )
 
         training_id = next_training["id"]
@@ -321,27 +333,100 @@ def home_page():
                         save_meal_supabase(training_id, user_id, "none")
                         st.rerun()
 
-        # =========================
-        # 残り日数
-        # =========================
-        training_date = datetime.strptime(next_training["date"], "%Y-%m-%d")
-        days_left = (training_date - datetime.today()).days
-
-        st.info(f"あと {days_left} 日")
-
-        # =========================
-        # 詳細ボタン
-        # =========================
-        if st.button("詳細を見る"):
-            st.session_state.training_id = training_id
-            st.session_state.page = "training_detail"
-            st.rerun()
-            
     else:
         st.info("予定されている訓練はありません")
 
+    st.markdown("---")
+
     # =========================
-    # ② 現在年度の報酬
+    # 出欠未回答の訓練
+    # =========================
+
+    today = datetime.today().date()
+    all_trainings = get_trainings_supabase()
+    incidents_map = get_incidents_map_supabase()
+
+    unanswered_trainings = []
+
+    for training in all_trainings:
+        training_date = datetime.strptime(
+            training["date"],
+            "%Y-%m-%d"
+        ).date()
+
+        # 過去の訓練は表示しない
+        if training_date < today:
+            continue
+
+        # 訓練日時点で在籍している団員を取得
+        active_users = get_active_users_supabase(
+            training["date"]
+        )
+
+        # 参加対象者を既存の判定ロジックで取得
+        targets = {
+            "roles": training.get("target_roles"),
+            "individual_ids": get_training_target_ids_supabase(
+                training["id"]
+            ),
+        }
+
+        target_users = get_target_users_frontend(
+            training,
+            active_users,
+            targets,
+            training["date"],
+        )
+
+        target_user_ids = [
+            target["id"] for target in target_users
+        ]
+
+        # 自分が参加対象でない訓練は表示しない
+        if user_id not in target_user_ids:
+            continue
+
+        # すでに回答済みなら表示しない
+        status = get_user_attendance_supabase(
+            training["id"],
+            user_id,
+        )
+
+        if status is not None:
+            continue
+
+        unanswered_trainings.append(training)
+
+    # 未回答訓練の見出し
+    with st.container(key="home_unanswered_heading"):
+        if unanswered_trainings:
+            st.markdown(
+                """
+                <div class="unanswered-heading">
+                    <span>⚠️ 未回答の訓練</span>
+                    <span class="unanswered-count">
+                        {count}
+                    </span>
+                </div>
+                """.format(count=len(unanswered_trainings)),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown("## ⚠️ 未回答の訓練")
+
+    # 未回答の訓練をカード形式で表示
+    if unanswered_trainings:
+        for training in unanswered_trainings:
+            training_card(
+                training,
+                incidents_map,
+                key_prefix="home_unanswered",
+            )
+    else:
+        st.success("🎉 出欠未回答の訓練はありません")
+
+    # =========================
+    # ③ 現在年度の報酬
     # =========================
     today = datetime.today()
     fiscal_year = today.year if today.month >= 4 else today.year - 1
