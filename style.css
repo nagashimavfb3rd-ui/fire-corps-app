@@ -147,38 +147,6 @@
     color: var(--text-color);
 }
 
-
-/* 集合時間・集合場所 */
-.training-meeting-info {
-    display: block;
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    line-height: 1.4;
-    margin: 0 0 0.35rem;
-    font-size: 0.875rem;
-    color: var(--text-color);
-}
-
-/* 参加人数・出欠状況を同じ行に配置 */
-.training-meeting-info {
-    display: block;
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    line-height: 1.4;
-    min-height: 1.4em;
-    margin: 0.2rem 0 0.6rem;
-    font-size: 0.875rem;
-    color: var(--text-color);
-}
-
 /* 参加人数 */
 .training-attendance-count {
     min-width: 0;

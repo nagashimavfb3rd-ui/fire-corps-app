@@ -1,6 +1,4 @@
 import streamlit as st
-import sqlite3
-import os
 from datetime import datetime
 from db import (
     create_user_supabase,
@@ -28,7 +26,6 @@ from db import (
     create_training_supabase,
     update_training_supabase,
     delete_training_supabase,
-    create_training_hose_supabase,
     copy_training_supabase,
     update_training_targets_supabase,
     get_training_target_ids_supabase,
@@ -36,20 +33,7 @@ from db import (
     create_password_hash
 )
 from utils.ui import show_toast, set_toast
-
-
-def get_users():
-    return get_users_supabase()
-
-# =========================
-# 権限チェック
-# =========================
-def is_admin():
-    return (
-        "user" in st.session_state and
-        st.session_state.user and
-        st.session_state.user["auth_role"] == "admin"
-    )
+from utils.permissions import is_admin
 
 
 # =========================
@@ -58,6 +42,9 @@ def is_admin():
 # 本体
 def training_admin_panel():
     st.subheader("🚒 訓練管理")
+
+    users = get_users_supabase()
+    user_map = {u["name"]: u["id"] for u in users}
 
     # =========================
     # 新規作成
@@ -107,9 +94,6 @@ def training_admin_panel():
             "参加対象者",
             ["団員", "副分団長", "分団長"]
         )
-        
-        users = get_users()
-        user_map = {u["name"]: u["id"] for u in users}
         
         selected_users = st.multiselect(
             "個別指定",
@@ -162,6 +146,7 @@ def training_admin_panel():
     )
 
     trainings = get_trainings_supabase()
+    users = get_users_supabase()
 
     if not show_past:
         today = datetime.today().date()
@@ -234,7 +219,6 @@ def training_admin_panel():
                 key=f"edit_target_{t['id']}"
             )
             
-            users = get_users()
             user_map = {u["name"]: u["id"] for u in users}
             
             # 現在の対象ユーザー取得（関数がまだ無いので後で追加）
@@ -391,7 +375,7 @@ def user_admin_panel():
     st.subheader("👥 役員交代機能")
     st.write("アプリ管理権限はadminならアプリをフル機能で利用可能、userは制限あり")
 
-    users = get_users()
+    users = get_users_supabase()
 
     for u in users:
         with st.expander(f"👤 {u['name']}"):

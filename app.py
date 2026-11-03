@@ -8,10 +8,7 @@ st.set_page_config(
 css_path = Path(__file__).parent / "style.css"
 css = css_path.read_text(encoding="utf-8")
 st.markdown(f"<style>\n{css}\n</style>", unsafe_allow_html=True)
-import os
 from db import(
-    authenticate_user_supabase,
-    
     get_next_training_supabase,
     get_user_meal_option_supabase,
     get_user_attendance_supabase,
@@ -41,7 +38,6 @@ from auth import (
     delete_token,
     init_session,
     set_user,
-    get_user,
     clear_user,
 )
 from utils.ui import show_toast
@@ -145,6 +141,7 @@ def home_page():
 
     user = st.session_state.user
     user_id = user["id"]
+    incidents_map = get_incidents_map_supabase()
 
     # ホーム画面のメニューボタン
     with st.container(key="home_menu"):
@@ -210,7 +207,7 @@ def home_page():
     if next_training:
         training_card(
             next_training,
-            get_incidents_map_supabase(),
+            incidents_map,
             key_prefix="training",
         )
 
@@ -344,7 +341,6 @@ def home_page():
 
     today = datetime.today().date()
     all_trainings = get_trainings_supabase()
-    incidents_map = get_incidents_map_supabase()
 
     unanswered_trainings = []
 
@@ -561,10 +557,6 @@ def sidebar_nav():
 # =========================
 def router():
     page = st.session_state.page
-
-    if st.session_state.user is None:
-        login_page()
-        return
 
     if page == "home":
         home_page()

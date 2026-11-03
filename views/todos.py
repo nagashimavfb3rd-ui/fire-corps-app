@@ -4,18 +4,7 @@ from db import (
     add_todo_supabase,
     complete_todo_supabase
 )
-from datetime import datetime
-
-
-# =========================
-# 権限チェック
-# =========================
-def is_admin():
-    return (
-        "user" in st.session_state and
-        st.session_state.user and
-        st.session_state.user["auth_role"] == "admin"
-    )
+from utils.permissions import is_admin
 
 # =========================
 # UI（カード）

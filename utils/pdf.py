@@ -1,6 +1,6 @@
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle,
-    Paragraph, Spacer, PageBreak
+    Paragraph, Spacer
 )
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4

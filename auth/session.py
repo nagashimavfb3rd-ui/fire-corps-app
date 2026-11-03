@@ -15,11 +15,6 @@ def set_user(user):
     st.session_state.user = user
 
 
-def get_user():
-    """現在のログインユーザーを取得する"""
-    return st.session_state.get("user")
-
-
 def clear_user():
     """ログインユーザーをセッションから削除する"""
     st.session_state.user = None

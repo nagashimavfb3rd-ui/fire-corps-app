@@ -833,6 +833,19 @@ def get_attendance_count_supabase(training_id):
     return present, absent
 
 
+def get_attendance_for_trainings_supabase(training_ids):
+    """複数の訓練の出欠情報をまとめて取得する"""
+    if not training_ids:
+        return []
+
+    res = supabase.table("training_attendance") \
+        .select("training_id, user_id, attend_status") \
+        .in_("training_id", training_ids) \
+        .execute()
+
+    return res.data
+
+
 def save_attendance_supabase(training_id, user_id, status, mode="planned"):
     column = "attend_status" if mode == "planned" else "actual_status"
 
@@ -972,30 +985,6 @@ def save_incident_supabase(training_id, data):
         payload,
         on_conflict="training_id"
     ).execute()
-
-
-def get_attendance_count_supabase(training_id):
-    rows = (
-        supabase.table("training_attendance")
-        .select("attend_status")
-        .eq("training_id", training_id)
-        .execute()
-        .data
-    )
-
-    present = sum(1 for r in rows if r["attend_status"] == "present")
-    absent = sum(1 for r in rows if r["attend_status"] == "absent")
-
-    return present, absent
-
-
-def get_training_target_ids_supabase(training_id):
-    res = supabase.table("training_targets") \
-        .select("user_id") \
-        .eq("training_id", training_id) \
-        .execute()
-
-    return [r["user_id"] for r in res.data]
 
 
 def get_target_users_frontend(training, users, targets, target_date):
