@@ -146,7 +146,6 @@ def training_admin_panel():
     )
 
     trainings = get_trainings_supabase()
-    users = get_users_supabase()
 
     if not show_past:
         today = datetime.today().date()
