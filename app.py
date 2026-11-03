@@ -234,12 +234,6 @@ def home_page():
                 unsafe_allow_html=True
             )
 
-            # 出欠ステータス取得
-            status = get_user_attendance_supabase(training_id, user_id)
-
-            if status is None:
-                st.warning("⚠️ 訓練の出欠を回答してください")
-
             # 出欠ボタン
             col1, col2 = st.columns(2, gap="small", wrap=False)
 
