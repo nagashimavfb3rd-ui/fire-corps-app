@@ -37,7 +37,7 @@ def build_target_label(training):
 # =========================
 # UI（カード）
 # =========================
-def training_card(training, incident_map):
+def training_card(training, incident_map, key_prefix="training"):
     present, absent = get_attendance_count_supabase(training["id"])
 
     # 必要人数が未設定（0を含む）の場合は表示しない
@@ -60,7 +60,7 @@ def training_card(training, incident_map):
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
 
     with st.container(
-        key=f"training_card_{training['id']}",
+        key=f"{key_prefix}_card_{training['id']}",
         border=True,
     ):
 
@@ -91,7 +91,9 @@ def training_card(training, incident_map):
         with detail_col:
             # 訓練名から詳細画面へ移動
             if event_label:
-                with st.container(key=f"training_title_row_{training['id']}"):
+                with st.container(
+                    key=f"{key_prefix}_title_row_{training['id']}"
+                ):
                     title_col, event_col = st.columns(
                         [0.8, 0.2],
                         vertical_alignment="top",
@@ -102,7 +104,7 @@ def training_card(training, incident_map):
                 with title_col:
                     clicked = st.button(
                         title,
-                        key=f"detail_{training['id']}",
+                        key=f"{key_prefix}_detail_{training['id']}",
                         use_container_width=True,
                     )
 
@@ -112,7 +114,7 @@ def training_card(training, incident_map):
             else:
                 clicked = st.button(
                     title,
-                    key=f"detail_{training['id']}",
+                    key=f"{key_prefix}_detail_{training['id']}",
                     use_container_width=True,
                 )
 
