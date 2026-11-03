@@ -1,9 +1,6 @@
 import streamlit as st
 from db import(
     get_fiscal_years_supabase,
-    get_user_actual_reward_supabase,
-    get_user_estimated_reward_supabase,
-    get_role_reward_supabase,
     get_user_reward_summary_supabase,
     get_user_specific_training_reward_supabase,
     get_hose_reward_summary_supabase
@@ -18,8 +15,6 @@ def main():
     user = st.session_state.get("user")
 
     if not user:
-        st.write("LOGIN USER:", user)
-        st.write("SESSION:", st.session_state)
         st.error("ログインしてください")
         st.stop()
 

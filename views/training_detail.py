@@ -14,12 +14,12 @@ from db import (
     save_incident_supabase,
     get_incident_supabase,
     get_training_target_ids_supabase,
-    get_all_trainings_ordered_supabase,
     get_prev_next_training,
     get_current_leader_supabase
 )
 from utils.ui import set_toast, show_toast
 from utils.pdf import create_training_report_pdf
+from utils.permissions import is_admin
 import uuid
 from datetime import datetime
 
@@ -70,17 +70,6 @@ def parse_datetime(value):
         return datetime.fromisoformat(str(value).replace(" ", "T"))
     except:
         return None
-
-
-# =========================
-# 権限チェック
-# =========================
-def is_admin():
-    return (
-        "user" in st.session_state and
-        st.session_state.user and
-        st.session_state.user.get("auth_role") == "admin"
-    )
 
 
 # =========================
@@ -284,7 +273,7 @@ def main():
 
     # 🎯 参加対象表示
     target_roles = training["target_roles"]
-    individual_ids = get_training_target_ids_supabase(training["id"])
+    individual_ids = targets["individual_ids"]
 
     # 👇 ユーザー表示
     with st.container():
@@ -620,10 +609,6 @@ def main():
     # =========================
     # 🚒 ホース片付け入力（管理者のみ）
     # =========================
-    # 🔧 training_hose は1回だけ作成する
-    if "hose_parent_id" not in st.session_state:
-        st.session_state.hose_parent_id = create_training_hose_supabase(training_id, 0)
-
     if is_admin():
         with st.expander("## 🚒 ホース片付け記録", expanded=False):
             st.info("各団員の片付け本数を入力してください")

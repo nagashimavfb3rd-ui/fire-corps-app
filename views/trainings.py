@@ -5,13 +5,11 @@ from db import (
     get_fiscal_year,
     get_training_target_ids_supabase,
     get_trainings_supabase,
+    get_attendance_for_trainings_supabase,
     get_attendance_count_supabase,
-    get_active_users_supabase,
-    get_target_users_frontend,
-    save_attendance_supabase,
+    get_user_attendance_supabase,
     get_training_years_supabase,
     get_incidents_map_supabase,
-    get_user_attendance_supabase
 )
 from utils.pdf import create_training_pdf
 
@@ -37,8 +35,32 @@ def build_target_label(training):
 # =========================
 # UI（カード）
 # =========================
-def training_card(training, incident_map, key_prefix="training"):
-    present, absent = get_attendance_count_supabase(training["id"])
+def training_card(
+    training,
+    incident_map,
+    attendance_map=None,
+    key_prefix="training",
+):
+    if attendance_map is not None:
+        present, absent, my_status = attendance_map.get(
+            training["id"],
+            (0, 0, None),
+        )
+    else:
+        present, absent = get_attendance_count_supabase(
+            training["id"]
+        )
+
+        user = st.session_state.get("user")
+        user_id = user.get("id") if user else None
+
+        if user_id:
+            my_status = get_user_attendance_supabase(
+                training["id"],
+                user_id,
+            )
+        else:
+            my_status = None
 
     # 必要人数が未設定（0を含む）の場合は表示しない
     required = training.get("required_members") or 0
@@ -145,18 +167,6 @@ def training_card(training, incident_map, key_prefix="training"):
             if required > 0:
                 attendance_text += f" / 必要{required}人"
 
-            # ログイン中の団員の回答状態
-            user = st.session_state.get("user")
-            user_id = user.get("id") if user else None
-
-            if user_id:
-                my_status = get_user_attendance_supabase(
-                    training["id"],
-                    user_id,
-                )
-            else:
-                my_status = None
-
             # 出欠バッジの表示内容
             if my_status == "present":
                 status_text = "自分：出席"
@@ -223,6 +233,39 @@ def main():
         st.warning("訓練データがありません")
         return
 
+    # 出欠情報をまとめて取得
+    training_ids = [t["id"] for t in trainings]
+    attendance_data = get_attendance_for_trainings_supabase(
+        training_ids
+    )
+
+    # 訓練ごとに出欠情報を集計
+    attendance_map = {}
+
+    user = st.session_state.get("user")
+    user_id = user.get("id") if user else None
+
+    for row in attendance_data:
+        training_id = row["training_id"]
+        status = row["attend_status"]
+
+        if training_id not in attendance_map:
+            attendance_map[training_id] = [0, 0, None]
+
+        if status == "present":
+            attendance_map[training_id][0] += 1
+        elif status == "absent":
+            attendance_map[training_id][1] += 1
+
+        if user_id and row["user_id"] == user_id:
+            attendance_map[training_id][2] = status
+
+    # タプル形式に変換
+    attendance_map = {
+        training_id: tuple(values)
+        for training_id, values in attendance_map.items()
+    }
+
     if st.button("📄 PDF出力"):
 
         if selected_year == "すべて":
@@ -253,7 +296,7 @@ def main():
         if is_past and not show_past:
             continue
         
-        training_card(t, incidents_map)
+        training_card(t, incidents_map, attendance_map)
 
 
 # =========================

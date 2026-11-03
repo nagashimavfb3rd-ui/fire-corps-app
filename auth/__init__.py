@@ -17,6 +17,5 @@ from auth.cookie import (
 from auth.session import (
     init_session,
     set_user,
-    get_user,
     clear_user,
 )

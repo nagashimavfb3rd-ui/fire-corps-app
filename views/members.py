@@ -4,22 +4,8 @@ from db import get_officer_experience_supabase
 from db import get_users_supabase
 from utils.ui import calc_years_by_fiscal_year
 from datetime import datetime
-
-
-def is_admin():
-    return st.session_state.user and st.session_state.user["auth_role"] == "admin"
-
-
-def calc_age(birth_date):
-    if not birth_date:
-        return None
-
-    birth = datetime.strptime(birth_date, "%Y-%m-%d")
-    today = datetime.today()
-
-    return today.year - birth.year - (
-        (today.month, today.day) < (birth.month, birth.day)
-    )
+from utils.date_utils import calc_age
+from utils.permissions import is_admin
 
 def calc_years(join_date):
     if not join_date:
@@ -31,15 +17,6 @@ def calc_years(join_date):
     return today.year - join.year - (
         (today.month, today.day) < (join.month, join.day)
     )
-
-def can_view_training():
-    user = st.session_state.get("user")
-    return user and user.get("role") in ["分団長", "副分団長"]
-
-def can_edit_training():
-    user = st.session_state.get("user")
-    return user and user.get("role") in ["分団長", "副分団長"]
-
 
 # =========================
 # UI
@@ -68,7 +45,6 @@ def user_card(user, exp_map):
     else:
         st.subheader(f"👤 {user['name']}")
 
-    unit_map = {u["id"]: u["name"] for u in units}
     age = calc_age(user["birth_date"])
     years = calc_years_by_fiscal_year(user["join_date"])
 

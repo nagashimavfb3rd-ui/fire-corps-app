@@ -1,6 +1,5 @@
 import streamlit as st
 from datetime import datetime
-from datetime import date
 from db import update_user_supabase
 from db import get_units_supabase
 from db import get_user_supabase
@@ -8,22 +7,10 @@ from db import get_fields_supabase
 from db import get_user_field_values_supabase
 from db import get_officer_experience_supabase
 from db import admin_reset_password_supabase
+from db import get_training_types_supabase
 from db import supabase
 from utils.ui import calc_years_by_fiscal_year
-
-DB_NAME = "fire_corps.db"
-
-def calc_age(birth_date):
-    if not birth_date:
-        return None
-
-    birth = datetime.strptime(birth_date, "%Y-%m-%d").date()
-    today = date.today()
-
-    return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
-
-def get_training_types_supabase():
-    return supabase.table("training_types").select("*").execute().data
+from utils.date_utils import calc_age
 
 def upsert_training_count_supabase(user_id, training_type_id, count):
     supabase.table("training_counts").upsert(
@@ -35,20 +22,25 @@ def upsert_training_count_supabase(user_id, training_type_id, count):
         on_conflict="user_id,training_type_id"
     ).execute()
 
+def get_training_counts_map(user_id):
+    """団員の訓練回数を取得して辞書にまとめる"""
+    counts_data = supabase.table("training_counts") \
+        .select("training_type_id, count") \
+        .eq("user_id", user_id) \
+        .execute().data
+
+    return {
+        c["training_type_id"]: c["count"]
+        for c in counts_data
+    }
+
 def training_count_editor(user_id):
 
     types = get_training_types_supabase()
 
     st.markdown("### 🚒 訓練回数（手動入力）")
 
-    # ★ 追加：1回で全部取得
-    counts_data = supabase.table("training_counts")\
-        .select("training_type_id, count")\
-        .eq("user_id", user_id)\
-        .execute().data
-
-    # ★ 辞書化（超重要）
-    counts_map = {c["training_type_id"]: c["count"] for c in counts_data}
+    counts_map = get_training_counts_map(user_id)
 
     for t in types:
 
@@ -76,11 +68,8 @@ def main():
 
     user_id = st.session_state.get("selected_user_id")
     
-    st.write("user_id =", user_id)
-
     if not user_id:
         st.error("団員が選択されていません")
-        st.write(st.session_state)  # デバッグ
         return
 
     user = get_user_supabase(user_id)
@@ -281,7 +270,7 @@ def main():
         exp_map = get_officer_experience_supabase()
         
         for key in user.keys():
-            if key in ["id", "password_hash", "salt"]:
+            if key in ["id", "password_hash", "salt", "auth_token"]:
                 continue
 
             label = label_map.get(key, key)
@@ -342,13 +331,7 @@ def main():
             
             types = get_training_types_supabase()
             
-            # ★ 追加：1回で全部取得
-            counts_data = supabase.table("training_counts")\
-                .select("training_type_id, count")\
-                .eq("user_id", user_id)\
-                .execute().data
-
-            counts_map = {c["training_type_id"]: c["count"] for c in counts_data}
+            counts_map = get_training_counts_map(user_id)
 
             for t in types:
                 count = counts_map.get(t["id"], 0)
